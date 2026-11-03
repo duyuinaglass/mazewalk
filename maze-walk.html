@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>迷路ウォーク</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #E6E8EB;
+  --panel: #F5F6F7;
+  --ink: #1C222B;
+  --muted: #5B6370;
+  --line: #C9CED5;
+  --accent: #2E5A87;
+  --accent-ink: #FFFFFF;
+  --rec: #B42318;
+  --stage: #0E1013;
+  --map-wall: #C9CED5;
+  --map-floor: #F5F6F7;
+  color-scheme: light;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171B;
+    --panel: #1C2026;
+    --ink: #E5E8EC;
+    --muted: #9AA2AE;
+    --line: #333A44;
+    --accent: #86AEDB;
+    --accent-ink: #10161D;
+    --rec: #F0705F;
+    --stage: #000000;
+    --map-wall: #333A44;
+    --map-floor: #1C2026;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171B;
+  --panel: #1C2026;
+  --ink: #E5E8EC;
+  --muted: #9AA2AE;
+  --line: #333A44;
+  --accent: #86AEDB;
+  --accent-ink: #10161D;
+  --rec: #F0705F;
+  --stage: #000000;
+  --map-wall: #333A44;
+  --map-floor: #1C2026;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--ink);
+  font-family: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.6;
+}
+.app { display: grid; grid-template-columns: 320px 1fr; height: 100%; }
+.panel {
+  background: var(--panel); border-right: 1px solid var(--line);
+  overflow-y: auto; padding: 20px 20px 32px;
+}
+.panel header h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: 0.02em; }
+.panel header p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; }
+h2 { font-size: 14px; margin: 0 0 10px; }
+.row { margin-bottom: 10px; }
+.row label.top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.row output { color: var(--muted); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 8px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+#minimap { width: 100%; aspect-ratio: 1; display: block; border: 1px solid var(--line); margin-bottom: 12px; image-rendering: pixelated; }
+.seed { display: flex; gap: 8px; align-items: center; }
+.seed input { flex: 1; min-width: 0; }
+input[type="number"], select {
+  font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px;
+}
+button, .btn {
+  font: inherit; font-size: 13px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px;
+  cursor: pointer; white-space: nowrap; display: inline-block;
+}
+button:hover, .btn:hover { border-color: var(--muted); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.recording { background: var(--rec); color: #FFFFFF; border-color: var(--rec); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tex { display: grid; grid-template-columns: 40px 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+.tex img { width: 40px; height: 40px; object-fit: cover; border: 1px solid var(--line); display: block; background: var(--bg); }
+.tex input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.tex .btn { padding: 4px 8px; font-size: 12px; }
+.tex button { padding: 4px 8px; font-size: 12px; }
+.color-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 10px; }
+input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); padding: 2px; }
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.viewport {
+  flex: 1; min-height: 0; background: var(--stage);
+  display: flex; align-items: center; justify-content: center; padding: 16px; overflow: hidden;
+}
+#view { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; background: #000; }
+.bar {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--line); font-size: 13px;
+}
+.bar .group { display: flex; align-items: center; gap: 8px; }
+.bar .group label { color: var(--muted); }
+#duration { width: 80px; }
+#timer { font-variant-numeric: tabular-nums; min-width: 4.5em; }
+#status { color: var(--muted); flex-basis: 100%; min-height: 1.6em; }
+@media (max-width: 760px) {
+  body { height: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .stage { order: -1; }
+  .viewport { padding: 0; height: 56vh; flex: none; }
+  .panel { border-right: none; border-top: 1px solid var(--line); overflow: visible; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <header>
+      <h1>迷路ウォーク</h1>
+      <p>部屋と通路のある迷路を生成し、一人称でランダムに歩き回る映像を録画します。</p>
+    </header>
+
+    <section>
+      <h2>マップ</h2>
+      <canvas id="minimap" width="240" height="240" aria-label="迷路の見取り図"></canvas>
+      <div class="row"><label class="top" for="size">広さ<output id="size-out"></output></label>
+        <input type="range" id="size" min="11" max="61" step="2" value="31"></div>
+      <div class="row"><label class="top" for="rooms">部屋の数<output id="rooms-out"></output></label>
+        <input type="range" id="rooms" min="0" max="30" step="1" value="8"></div>
+      <div class="row"><label class="top" for="roomMax">部屋の大きさの上限<output id="roomMax-out"></output></label>
+        <input type="range" id="roomMax" min="3" max="13" step="2" value="7"></div>
+      <div class="row"><label class="top" for="loops">回り道の多さ<output id="loops-out"></output></label>
+        <input type="range" id="loops" min="0" max="100" step="1" value="25"></div>
+      <div class="row"><label class="top" for="windy">通路の曲がりやすさ<output id="windy-out"></output></label>
+        <input type="range" id="windy" min="0" max="100" step="1" value="60"></div>
+      <div class="row seed">
+        <label for="seed" style="font-size:13px">シード</label>
+        <input type="number" id="seed" value="1985">
+        <button id="newMap">新しいマップ</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>見た目</h2>
+      <div class="tex" data-slot="wall"><img alt="壁のテクスチャ"><span>壁</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
+      <div class="tex" data-slot="floor"><img alt="床のテクスチャ"><span>床</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
+      <div class="tex" data-slot="ceil"><img alt="天井のテクスチャ"><span>天井</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
+      <div class="tex" data-slot="sky"><img alt="空のテクスチャ"><span>空</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
+      <label class="check"><input type="checkbox" id="ceilOn">天井を表示する（外すと空が見えます）</label>
+      <label class="check"><input type="checkbox" id="nearest">テクスチャを補間せず粗いまま表示する</label>
+      <div class="row"><label class="top" for="wallH">壁の高さ<output id="wallH-out"></output></label>
+        <input type="range" id="wallH" min="1" max="8" step="0.1" value="2"></div>
+      <div class="row"><label class="top" for="eye">目の高さ（壁に対する割合）<output id="eye-out"></output></label>
+        <input type="range" id="eye" min="10" max="95" step="1" value="50"></div>
+      <div class="row"><label class="top" for="fov">視野角<output id="fov-out"></output></label>
+        <input type="range" id="fov" min="30" max="120" step="1" value="70"></div>
+      <div class="row"><label class="top" for="fog">霧の濃さ<output id="fog-out"></output></label>
+        <input type="range" id="fog" min="0" max="100" step="1" value="0"></div>
+      <div class="color-row"><label for="fogColor">霧の色</label><input type="color" id="fogColor" value="#000000"></div>
+    </section>
+
+    <section>
+      <h2>歩き方</h2>
+      <div class="row"><label class="top" for="speed">歩く速さ<output id="speed-out"></output></label>
+        <input type="range" id="speed" min="0.3" max="6" step="0.1" value="1.6"></div>
+      <div class="row"><label class="top" for="turn">向きを変える速さ<output id="turn-out"></output></label>
+        <input type="range" id="turn" min="20" max="400" step="5" value="120"></div>
+      <div class="row"><label class="top" for="straight">直進しやすさ<output id="straight-out"></output></label>
+        <input type="range" id="straight" min="0" max="100" step="1" value="50"></div>
+      <div class="row"><label class="top" for="bob">歩行の上下動<output id="bob-out"></output></label>
+        <input type="range" id="bob" min="0" max="100" step="1" value="0"></div>
+      <label class="check"><input type="checkbox" id="smooth">歩きながら曲がる（外すとその場で向きを変えてから進みます）</label>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <div class="viewport"><canvas id="view"></canvas></div>
+    <div class="bar">
+      <button id="pause">一時停止</button>
+      <div class="group"><label for="res">解像度</label>
+        <select id="res">
+          <option value="640x480">640×480（4:3）</option>
+          <option value="960x720">960×720（4:3）</option>
+          <option value="1280x720" selected>1280×720（16:9）</option>
+          <option value="1920x1080">1920×1080（16:9）</option>
+        </select></div>
+      <div class="group"><label for="fps">fps</label>
+        <select id="fps"><option>24</option><option selected>30</option><option>60</option></select></div>
+      <div class="group"><label for="duration">長さ（秒・0で手動停止）</label>
+        <input type="number" id="duration" min="0" step="1" value="0"></div>
+      <div class="group">
+        <button id="rec" class="primary">録画を開始</button>
+        <span id="timer">0:00</span>
+      </div>
+      <button id="save" hidden>動画を保存</button>
+      <div id="status" role="status"></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const S = 2; // tile size in world units
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------- parameters ----------
+  const P = {
+    size: 31, rooms: 8, roomMax: 7, loops: 25, windy: 60, seed: 1985,
+    wallH: 2, eye: 50, fov: 70, fog: 0, fogColor: "#000000", ceilOn: false, nearest: false,
+    speed: 1.6, turn: 120, straight: 50, bob: 0, smooth: false,
+  };
+  const fmt = {
+    size: (v) => v + "×" + v, rooms: (v) => v + "", roomMax: (v) => v + "マス",
+    loops: (v) => v + "%", windy: (v) => v + "%", wallH: (v) => (v / S).toFixed(2) + "マス",
+    eye: (v) => v + "%", fov: (v) => v + "°", fog: (v) => (v == 0 ? "なし" : v + ""),
+    speed: (v) => (+v).toFixed(1) + "マス/秒", turn: (v) => v + "°/秒", straight: (v) => v + "%", bob: (v) => (v == 0 ? "なし" : v + ""),
+  };
+  const regenKeys = new Set(["size", "rooms", "roomMax", "loops", "windy"]);
+
+  // ---------- map generation ----------
+  function generateMap(p) {
+    const rng = mulberry32(p.seed);
+    const ri = (a, b) => a + Math.floor(rng() * (b - a + 1));
+    const W = p.size, H = p.size;
+    const g = new Uint8Array(W * H);
+    const idx = (x, y) => y * W + x;
+    const inside = (x, y) => x >= 1 && y >= 1 && x <= W - 2 && y <= H - 2;
+
+    const rooms = [];
+    const half = Math.max(1, Math.floor((p.roomMax - 1) / 2));
+    let attempts = p.rooms * 40;
+    while (rooms.length < p.rooms && attempts-- > 0) {
+      const rw = 1 + 2 * ri(1, half), rh = 1 + 2 * ri(1, half);
+      if (rw > W - 2 || rh > H - 2) continue;
+      const x = 1 + 2 * ri(0, Math.floor((W - 2 - rw) / 2));
+      const y = 1 + 2 * ri(0, Math.floor((H - 2 - rh) / 2));
+      let ok = true;
+      for (const r of rooms) {
+        if (x <= r.x + r.w && x + rw - 1 >= r.x - 1 && y <= r.y + r.h && y + rh - 1 >= r.y - 1) { ok = false; break; }
+      }
+      if (!ok) continue;
+      rooms.push({ x, y, w: rw, h: rh });
+      for (let yy = y; yy < y + rh; yy++) for (let xx = x; xx < x + rw; xx++) g[idx(xx, yy)] = 1;
+    }
+
+    // corridors: growing maze through remaining cells
+    const keepDir = p.windy / 100;
+    for (let y = 1; y < H - 1; y += 2) for (let x = 1; x < W - 1; x += 2) {
+      if (g[idx(x, y)]) continue;
+      g[idx(x, y)] = 1;
+      const stack = [[x, y]];
+      let last = -1;
+      while (stack.length) {
+        const [cx, cy] = stack[stack.length - 1];
+        const opts = [];
+        for (let d = 0; d < 4; d++) {
+          const nx = cx + DIRS[d][0] * 2, ny = cy + DIRS[d][1] * 2;
+          if (inside(nx, ny) && !g[idx(nx, ny)]) opts.push(d);
+        }
+        if (!opts.length) { stack.pop(); last = -1; continue; }
+        let d;
+        if (last >= 0 && opts.includes(last) && rng() > keepDir) d = last;
+        else d = opts[Math.floor(rng() * opts.length)];
+        g[idx(cx + DIRS[d][0], cy + DIRS[d][1])] = 1;
+        const nx = cx + DIRS[d][0] * 2, ny = cy + DIRS[d][1] * 2;
+        g[idx(nx, ny)] = 1;
+        stack.push([nx, ny]);
+        last = d;
+      }
+    }
+
+    // doors from rooms
+    for (const r of rooms) {
+      const c = [];
+      const tryAdd = (dx, dy, bx, by) => {
+        if (inside(dx, dy) && inside(bx, by) && !g[idx(dx, dy)] && g[idx(bx, by)]) c.push([dx, dy]);
+      };
+      for (let x = r.x; x < r.x + r.w; x++) { tryAdd(x, r.y - 1, x, r.y - 2); tryAdd(x, r.y + r.h, x, r.y + r.h + 1); }
+      for (let y = r.y; y < r.y + r.h; y++) { tryAdd(r.x - 1, y, r.x - 2, y); tryAdd(r.x + r.w, y, r.x + r.w + 1, y); }
+      for (let i = c.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [c[i], c[j]] = [c[j], c[i]]; }
+      const n = 1 + (rng() < 0.5 ? 1 : 0) + (rng() < 0.2 ? 1 : 0);
+      for (let i = 0; i < Math.min(n, c.length); i++) g[idx(c[i][0], c[i][1])] = 1;
+    }
+
+    // extra openings for loops
+    const lp = (p.loops / 100) * 0.3;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if (g[idx(x, y)]) continue;
+      const h = g[idx(x - 1, y)] && g[idx(x + 1, y)] && !g[idx(x, y - 1)] && !g[idx(x, y + 1)];
+      const v = g[idx(x, y - 1)] && g[idx(x, y + 1)] && !g[idx(x - 1, y)] && !g[idx(x + 1, y)];
+      if ((h || v) && rng() < lp) g[idx(x, y)] = 1;
+    }
+
+    // make sure every floor tile is reachable
+    const bfs = () => {
+      const seen = new Uint8Array(W * H);
+      let s = -1;
+      for (let i = 0; i < g.length; i++) if (g[i]) { s = i; break; }
+      if (s < 0) return seen;
+      const q = [s]; seen[s] = 1;
+      while (q.length) {
+        const i = q.pop(); const x = i % W, y = (i / W) | 0;
+        for (const [dx, dy] of DIRS) {
+          const j = idx(x + dx, y + dy);
+          if (g[j] && !seen[j]) { seen[j] = 1; q.push(j); }
+        }
+      }
+      return seen;
+    };
+    let seen = bfs();
+    for (let guard = 0; guard < 1000; guard++) {
+      let missing = false;
+      for (let i = 0; i < g.length; i++) if (g[i] && !seen[i]) { missing = true; break; }
+      if (!missing) break;
+      const cands = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+        if (g[idx(x, y)]) continue;
+        const pairs = [[idx(x - 1, y), idx(x + 1, y)], [idx(x, y - 1), idx(x, y + 1)]];
+        for (const [a, b] of pairs) if (g[a] && g[b] && seen[a] !== seen[b]) cands.push(idx(x, y));
+      }
+      if (!cands.length) break;
+      g[cands[Math.floor(rng() * cands.length)]] = 1;
+      seen = bfs();
+    }
+
+    const floors = [];
+    for (let i = 0; i < g.length; i++) if (g[i] && seen[i]) floors.push(i);
+    const start = floors.length ? floors[Math.floor(rng() * floors.length)] : idx(1, 1);
+    return { W, H, g, start, isFloor: (x, y) => x >= 0 && y >= 0 && x < W && y < H && g[idx(x, y)] === 1 };
+  }
+
+  // ---------- default textures ----------
+  function makeCanvas(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function noise(ctx, w, h, rng, amount, alpha) {
+    for (let i = 0; i < amount; i++) {
+      ctx.fillStyle = rng() < 0.5 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
+      ctx.fillRect(Math.floor(rng() * w), Math.floor(rng() * h), 2, 2);
+    }
+  }
+  function defBrick() {
+    const c = makeCanvas(256, 256), x = c.getContext("2d"), r = mulberry32(7);
+    x.fillStyle = "#7d756c"; x.fillRect(0, 0, 256, 256);
+    for (let row = 0; row < 8; row++) {
+      const off = row % 2 ? 32 : 0;
+      for (let col = -1; col < 5; col++) {
+        const bx = col * 64 + off, by = row * 32;
+        x.fillStyle = `hsl(${8 + r() * 8}, ${42 + r() * 14}%, ${28 + r() * 10}%)`;
+        x.fillRect(bx + 3, by + 3, 58, 26);
+      }
+    }
+    noise(x, 256, 256, r, 3000, 0.08);
+    return c;
+  }
+  function defFloor() {
+    const c = makeCanvas(256, 256), x = c.getContext("2d"), r = mulberry32(11);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+      x.fillStyle = (i + j) % 2 ? "#8f8a80" : "#a6a196";
+      x.fillRect(i * 64, j * 64, 64, 64);
+    }
+    x.strokeStyle = "#5f5b55"; x.lineWidth = 2;
+    for (let k = 0; k <= 256; k += 64) {
+      x.beginPath(); x.moveTo(k, 0); x.lineTo(k, 256); x.stroke();
+      x.beginPath(); x.moveTo(0, k); x.lineTo(256, k); x.stroke();
+    }
+    noise(x, 256, 256, r, 2500, 0.06);
+    return c;
+  }
+  function defCeil() {
+    const c = makeCanvas(256, 256), x = c.getContext("2d"), r = mulberry32(13);
+    x.fillStyle = "#d9d6cf"; x.fillRect(0, 0, 256, 256);
+    x.fillStyle = "rgba(60,55,50,0.35)";
+    for (let i = 0; i < 900; i++) x.fillRect(r() * 256, r() * 256, 1.5, 1.5);
+    x.strokeStyle = "#aaa59c"; x.lineWidth = 3;
+    x.strokeRect(1.5, 1.5, 253, 253);
+    x.beginPath(); x.moveTo(128, 0); x.lineTo(128, 256); x.moveTo(0, 128); x.lineTo(256, 128); x.stroke();
+    return c;
+  }
+  function defSky() {
+    const c = makeCanvas(1024, 512), x = c.getContext("2d"), r = mulberry32(17);
+    const grd = x.createLinearGradient(0, 0, 0, 512);
+    grd.addColorStop(0, "#3c6aa3"); grd.addColorStop(0.49, "#cddfeb"); grd.addColorStop(0.5, "#9aa8b2"); grd.addColorStop(1, "#6c7880");
+    x.fillStyle = grd; x.fillRect(0, 0, 1024, 512);
+    for (let i = 0; i < 40; i++) {
+      const cx = r() * 1024, cy = 90 + r() * 140, rw = 40 + r() * 120, rh = 8 + r() * 18;
+      x.fillStyle = `rgba(255,255,255,${0.08 + r() * 0.15})`;
+      x.beginPath(); x.ellipse(cx, cy, rw, rh, 0, 0, Math.PI * 2); x.fill();
+    }
+    return c;
+  }
+  const DEFAULTS = { wall: defBrick, floor: defFloor, ceil: defCeil, sky: defSky };
+
+  // ---------- three.js setup ----------
+  const canvas = $("#view");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(P.fov, 16 / 9, 0.05, 2000);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.45);
+  sun.position.set(1, 2, 0.6);
+  scene.add(sun);
+
+  const tex = {};
+  const thumbs = {};
+  function makeTexture(source) {
+    const t = source instanceof HTMLCanvasElement ? new THREE.CanvasTexture(source) : new THREE.Texture(source);
+    t.encoding = THREE.sRGBEncoding;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    applyFilter(t);
+    t.needsUpdate = true;
+    return t;
+  }
+  function applyFilter(t) {
+    t.magFilter = P.nearest ? THREE.NearestFilter : THREE.LinearFilter;
+    t.minFilter = P.nearest ? THREE.NearestMipmapNearestFilter : THREE.LinearMipmapLinearFilter;
+    t.needsUpdate = true;
+  }
+  function setSlot(slot, source, thumbUrl) {
+    if (tex[slot]) tex[slot].dispose();
+    tex[slot] = makeTexture(source);
+    thumbs[slot] = thumbUrl;
+    const img = document.querySelector(`.tex[data-slot="${slot}"] img`);
+    if (img) img.src = thumbUrl;
+    applyMaterials();
+  }
+  function resetSlot(slot) {
+    const c = DEFAULTS[slot]();
+    setSlot(slot, c, c.toDataURL("image/png"));
+  }
+
+  const wallMat = new THREE.MeshLambertMaterial();
+  const floorMat = new THREE.MeshLambertMaterial();
+  const ceilMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+  const skyMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), skyMat);
+  sky.renderOrder = -1;
+  scene.add(sky);
+
+  let world = null; // {map, walls, floor, ceil}
+  function applyMaterials() {
+    if (tex.wall) { tex.wall.repeat.set(1, P.wallH / S); wallMat.map = tex.wall; wallMat.needsUpdate = true; }
+    if (world && tex.floor) { tex.floor.repeat.set(world.map.W, world.map.H); }
+    if (tex.floor) { floorMat.map = tex.floor; floorMat.needsUpdate = true; }
+    if (world && tex.ceil) { tex.ceil.repeat.set(world.map.W, world.map.H); }
+    if (tex.ceil) { ceilMat.map = tex.ceil; ceilMat.needsUpdate = true; }
+    if (tex.sky) { tex.sky.repeat.set(1, 1); skyMat.map = tex.sky; skyMat.needsUpdate = true; }
+  }
+
+  function buildWorld() {
+    if (world) {
+      scene.remove(world.walls, world.floor, world.ceil);
+      world.walls.geometry.dispose(); world.floor.geometry.dispose(); world.ceil.geometry.dispose();
+    }
+    const map = generateMap(P);
+    const { W, H } = map;
+    const list = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (map.isFloor(x, y)) continue;
+      if (map.isFloor(x + 1, y) || map.isFloor(x - 1, y) || map.isFloor(x, y + 1) || map.isFloor(x, y - 1)) list.push([x, y]);
+    }
+    const geo = new THREE.BoxGeometry(S, P.wallH, S);
+    const walls = new THREE.InstancedMesh(geo, wallMat, Math.max(1, list.length));
+    const m = new THREE.Matrix4();
+    list.forEach(([x, y], i) => { m.makeTranslation(x * S, P.wallH / 2, y * S); walls.setMatrixAt(i, m); });
+    walls.count = list.length;
+    walls.instanceMatrix.needsUpdate = true;
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set((W - 1) * S / 2, 0, (H - 1) * S / 2);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), ceilMat);
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set((W - 1) * S / 2, P.wallH, (H - 1) * S / 2);
+    ceil.visible = P.ceilOn;
+    scene.add(walls, floor, ceil);
+    world = { map, walls, floor, ceil };
+    applyMaterials();
+    resetWalker();
+    drawMinimapBase();
+  }
+
+  // ---------- walker ----------
+  const walker = {};
+  let visits = null;
+  const yawOf = (d) => Math.atan2(-DIRS[d][0], -DIRS[d][1]);
+  const angDiff = (a, b) => { let d = a - b; d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return d; };
+  let wrng = mulberry32(1);
+  function resetWalker() {
+    const { map } = world;
+    visits = new Uint16Array(map.W * map.H);
+    wrng = mulberry32(P.seed ^ 0x5bd1e995);
+    const sx = map.start % map.W, sy = (map.start / map.W) | 0;
+    Object.assign(walker, { cx: sx, cy: sy, x: sx, y: sy, dir: 0, traveled: 0 });
+    let d0 = 0;
+    for (let d = 0; d < 4; d++) if (map.isFloor(sx + DIRS[d][0], sy + DIRS[d][1])) { d0 = d; break; }
+    walker.dir = d0;
+    walker.yaw = yawOf(d0);
+    visits[map.start] = 1;
+    chooseNext();
+    walker.yaw = walker.targetYaw;
+  }
+  function chooseNext() {
+    const { map } = world;
+    const w = walker;
+    const opts = [];
+    for (let d = 0; d < 4; d++) if (map.isFloor(w.cx + DIRS[d][0], w.cy + DIRS[d][1])) opts.push(d);
+    if (!opts.length) { w.tx = w.cx; w.ty = w.cy; w.targetYaw = w.yaw; return; }
+    const back = (w.dir + 2) % 4;
+    const cand = opts.length > 1 ? opts.filter((d) => d !== back) : opts;
+    const weights = cand.map((d) => {
+      const nx = w.cx + DIRS[d][0], ny = w.cy + DIRS[d][1];
+      let wt = 1 / (1 + visits[ny * map.W + nx] * 1.5);
+      if (d === w.dir) wt *= 1 + (P.straight / 100) * 6;
+      return wt;
+    });
+    let sum = weights.reduce((a, b) => a + b, 0), r = wrng() * sum, pick = cand[0];
+    for (let i = 0; i < cand.length; i++) { r -= weights[i]; if (r <= 0) { pick = cand[i]; break; } }
+    w.dir = pick;
+    w.tx = w.cx + DIRS[pick][0];
+    w.ty = w.cy + DIRS[pick][1];
+    w.targetYaw = w.yaw + angDiff(yawOf(pick), w.yaw);
+  }
+  function stepWalker(dt) {
+    const w = walker;
+    const diff = w.targetYaw - w.yaw;
+    const ts = (P.turn * Math.PI / 180) * dt;
+    if (Math.abs(diff) <= ts) w.yaw = w.targetYaw; else w.yaw += Math.sign(diff) * ts;
+    const remaining = Math.abs(w.targetYaw - w.yaw);
+    const canMove = remaining < 1e-4 || (P.smooth && remaining < Math.PI * 0.6);
+    if (!canMove) return;
+    const dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
+    const mv = P.speed * dt;
+    if (dist <= mv) {
+      w.x = w.tx; w.y = w.ty; w.cx = w.tx; w.cy = w.ty; w.traveled += dist;
+      visits[w.cy * world.map.W + w.cx]++;
+      chooseNext();
+    } else {
+      w.x += dx / dist * mv; w.y += dy / dist * mv; w.traveled += mv;
+    }
+  }
+
+  // ---------- minimap ----------
+  const mm = $("#minimap"), mmx = mm.getContext("2d");
+  const mmBase = document.createElement("canvas");
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function drawMinimapBase() {
+    const { map } = world;
+    const px = Math.max(2, Math.floor(480 / map.W));
+    mm.width = mm.height = mmBase.width = mmBase.height = px * map.W;
+    const b = mmBase.getContext("2d");
+    b.fillStyle = cssVar("--map-wall"); b.fillRect(0, 0, mmBase.width, mmBase.height);
+    b.fillStyle = cssVar("--map-floor");
+    for (let y = 0; y < map.H; y++) for (let x = 0; x < map.W; x++) if (map.isFloor(x, y)) b.fillRect(x * px, y * px, px, px);
+    mmBase.px = px;
+  }
+  function drawMinimap() {
+    if (!world) return;
+    const px = mmBase.px, { map } = world;
+    mmx.drawImage(mmBase, 0, 0);
+    mmx.fillStyle = cssVar("--accent");
+    mmx.globalAlpha = 0.28;
+    for (let i = 0; i < visits.length; i++) if (visits[i]) mmx.fillRect((i % map.W) * px, ((i / map.W) | 0) * px, px, px);
+    mmx.globalAlpha = 1;
+    const cx = (walker.x + 0.5) * px, cy = (walker.y + 0.5) * px;
+    mmx.fillStyle = cssVar("--rec");
+    mmx.beginPath(); mmx.arc(cx, cy, Math.max(3, px * 0.6), 0, Math.PI * 2); mmx.fill();
+    const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
+    mmx.strokeStyle = cssVar("--rec"); mmx.lineWidth = Math.max(2, px * 0.3);
+    mmx.beginPath(); mmx.moveTo(cx, cy); mmx.lineTo(cx + fx * px * 2, cy + fz * px * 2); mmx.stroke();
+  }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => world && drawMinimapBase());
+
+  // ---------- view settings ----------
+  function applyFog() {
+    if (P.fog <= 0) { scene.fog = null; renderer.setClearColor(0x000000); }
+    else {
+      const far = 4 + (100 - P.fog) * 0.9;
+      scene.fog = new THREE.Fog(new THREE.Color(P.fogColor), far * 0.15, far);
+    }
+    wallMat.needsUpdate = floorMat.needsUpdate = ceilMat.needsUpdate = true;
+  }
+  function setResolution() {
+    const [w, h] = $("#res").value.split("x").map(Number);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    fitCanvas();
+  }
+  function fitCanvas() {
+    const vp = canvas.parentElement;
+    const [w, h] = $("#res").value.split("x").map(Number);
+    const cs = getComputedStyle(vp);
+    const aw = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const ah = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const s = Math.min(aw / w, ah / h);
+    canvas.style.width = Math.max(1, Math.floor(w * s)) + "px";
+    canvas.style.height = Math.max(1, Math.floor(h * s)) + "px";
+  }
+  new ResizeObserver(fitCanvas).observe(canvas.parentElement);
+
+  // ---------- UI binding ----------
+  let regenTimer = null;
+  document.querySelectorAll('input[type="range"]').forEach((el) => {
+    const key = el.id;
+    const out = document.getElementById(key + "-out");
+    const show = () => { if (out) out.textContent = fmt[key] ? fmt[key](el.value) : el.value; };
+    el.value = P[key];
+    show();
+    el.addEventListener("input", () => {
+      P[key] = parseFloat(el.value);
+      show();
+      if (regenKeys.has(key)) { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 120); }
+      else if (key === "wallH") { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 120); }
+      else if (key === "fov") { camera.fov = P.fov; camera.updateProjectionMatrix(); }
+      else if (key === "fog") applyFog();
+    });
+  });
+  $("#seed").addEventListener("change", (e) => { P.seed = parseInt(e.target.value, 10) || 0; buildWorld(); });
+  $("#newMap").addEventListener("click", () => {
+    P.seed = Math.floor(Math.random() * 1e6);
+    $("#seed").value = P.seed;
+    buildWorld();
+  });
+  $("#ceilOn").addEventListener("change", (e) => { P.ceilOn = e.target.checked; if (world) world.ceil.visible = P.ceilOn; });
+  $("#nearest").addEventListener("change", (e) => { P.nearest = e.target.checked; Object.values(tex).forEach(applyFilter); });
+  $("#fogColor").addEventListener("input", (e) => { P.fogColor = e.target.value; applyFog(); });
+  $("#smooth").addEventListener("change", (e) => { P.smooth = e.target.checked; });
+
+  document.querySelectorAll(".tex").forEach((row) => {
+    const slot = row.dataset.slot;
+    const input = row.querySelector('input[type="file"]');
+    input.addEventListener("change", () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => setSlot(slot, img, reader.result);
+        img.onerror = () => status("この画像は読み込めませんでした。PNGかJPEGを選んでください。");
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(f);
+      input.value = "";
+    });
+    row.querySelector(".reset").addEventListener("click", () => resetSlot(slot));
+  });
+
+  let paused = false;
+  $("#pause").addEventListener("click", () => {
+    paused = !paused;
+    $("#pause").textContent = paused ? "再開" : "一時停止";
+  });
+  $("#res").addEventListener("change", setResolution);
+
+  // ---------- recording ----------
+  const statusEl = $("#status");
+  function status(t) { statusEl.textContent = t; }
+  let recorder = null, chunks = [], recStart = 0, lastBlob = null, lastMime = "";
+  const downloadsP = window.claude && typeof window.claude.use === "function" ? window.claude.use("downloads") : Promise.resolve(null);
+  function pickMime() {
+    if (!window.MediaRecorder) return null;
+    const list = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+    return list.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+  }
+  function bitrate() {
+    const [w, h] = $("#res").value.split("x").map(Number);
+    return Math.round(w * h * 9);
+  }
+  function startRec() {
+    const mime = pickMime();
+    if (mime === null || !canvas.captureStream) { status("このブラウザは画面の録画に対応していません。ChromeかFirefoxで開いてください。"); return; }
+    const stream = canvas.captureStream(parseInt($("#fps").value, 10));
+    chunks = [];
+    try {
+      recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bitrate() } : { videoBitsPerSecond: bitrate() });
+    } catch (e) { status("録画を開始できませんでした：" + e.message); return; }
+    lastMime = recorder.mimeType || mime || "video/webm";
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      lastBlob = new Blob(chunks, { type: lastMime.split(";")[0] });
+      const mb = (lastBlob.size / 1048576).toFixed(1);
+      $("#save").hidden = false;
+      $("#save").textContent = `動画を保存（${mb} MB）`;
+      status("録画が終わりました。「動画を保存」で書き出せます。");
+    };
+    recorder.start(1000);
+    recStart = performance.now();
+    $("#rec").textContent = "録画を停止";
+    $("#rec").classList.remove("primary");
+    $("#rec").classList.add("recording");
+    $("#res").disabled = $("#fps").disabled = true;
+    $("#save").hidden = true;
+    status("録画中です。このタブを表示したままにしてください（裏に回すと映像が止まります）。");
+  }
+  function stopRec() {
+    if (!recorder) return;
+    recorder.stop();
+    recorder = null;
+    $("#rec").textContent = "録画を開始";
+    $("#rec").classList.add("primary");
+    $("#rec").classList.remove("recording");
+    $("#res").disabled = $("#fps").disabled = false;
+  }
+  $("#rec").addEventListener("click", () => (recorder ? stopRec() : startRec()));
+  document.addEventListener("visibilitychange", () => {
+    if (recorder && document.hidden) status("タブが裏に回ったため、その間の映像は止まっています。");
+  });
+
+  $("#save").addEventListener("click", async () => {
+    if (!lastBlob) return;
+    const ext = lastMime.includes("mp4") ? "mp4" : "webm";
+    const d = new Date(), z = (n) => String(n).padStart(2, "0");
+    const name = `maze-walk-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
+    const dl = await downloadsP;
+    if (dl) {
+      try {
+        await dl.save({ filename: name, data: lastBlob });
+        status("保存しました：" + name);
+      } catch (e) {
+        const code = e && e.code;
+        if (code === "declined") status("保存を取りやめました。");
+        else if (code === "too_large") status("ファイルが大きすぎて保存できませんでした。録画を短くするか、解像度を下げてください。");
+        else if (code === "rate_limited") status("保存の確認画面がすでに開いています。そちらを閉じてからもう一度押してください。");
+        else status("この表示では保存できません。");
+      }
+      return;
+    }
+    if (window.claude) { status("この表示では保存できません。"); return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(lastBlob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    status("保存しました：" + name);
+  });
+
+  // ---------- loop ----------
+  let last = performance.now(), mmT = 0;
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (world && !paused) stepWalker(dt);
+    if (world) {
+      const eye = P.wallH * (P.eye / 100);
+      const bob = Math.sin(walker.traveled * Math.PI * 2) * (P.bob / 100) * 0.12 * P.wallH;
+      camera.position.set(walker.x * S, eye + bob, walker.y * S);
+      camera.rotation.set(0, walker.yaw, 0);
+      sky.position.copy(camera.position);
+    }
+    renderer.render(scene, camera);
+    if (now - mmT > 100) { drawMinimap(); mmT = now; }
+    if (recorder) {
+      const el = (now - recStart) / 1000;
+      $("#timer").textContent = Math.floor(el / 60) + ":" + String(Math.floor(el % 60)).padStart(2, "0");
+      const dur = parseFloat($("#duration").value) || 0;
+      if (dur > 0 && el >= dur) stopRec();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- init ----------
+  Object.keys(DEFAULTS).forEach(resetSlot);
+  $("#ceilOn").checked = P.ceilOn;
+  $("#seed").value = P.seed;
+  setResolution();
+  applyFog();
+  buildWorld();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
