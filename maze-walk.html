@@ -166,6 +166,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       <label class="check"><input type="checkbox" id="nearest">テクスチャを補間せず粗いまま表示する</label>
       <div class="row"><label class="top" for="wallH">壁の高さ<output id="wallH-out"></output></label>
         <input type="range" id="wallH" min="1" max="8" step="0.1" value="2"></div>
+      <div class="row"><label class="top" for="hallW">通路の幅（壁の厚さに対する倍率）<output id="hallW-out"></output></label>
+        <input type="range" id="hallW" min="0.4" max="4" step="0.1" value="1"></div>
       <div class="row"><label class="top" for="eye">目の高さ（壁に対する割合）<output id="eye-out"></output></label>
         <input type="range" id="eye" min="10" max="95" step="1" value="50"></div>
       <div class="row"><label class="top" for="fov">視野角<output id="fov-out"></output></label>
@@ -179,7 +181,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       <h2>柱と縁取り</h2>
       <label class="check"><input type="checkbox" id="pillars">壁に柱を立てる（角と出入口には必ず立ちます）</label>
       <div class="row"><label class="top" for="pillarGap">柱の間隔<output id="pillarGap-out"></output></label>
-        <input type="range" id="pillarGap" min="1" max="8" step="1" value="2"></div>
+        <input type="range" id="pillarGap" min="1" max="9" step="1" value="2"></div>
       <div class="row"><label class="top" for="pillarW">柱の幅（1マスに対する割合）<output id="pillarW-out"></output></label>
         <input type="range" id="pillarW" min="4" max="40" step="1" value="16"></div>
       <div class="row"><label class="top" for="pillarD">柱の出っ張り<output id="pillarD-out"></output></label>
@@ -249,7 +251,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   // ---------- parameters ----------
   const P = {
     size: 31, rooms: 8, roomMax: 7, loops: 25, windy: 60, seed: 1985,
-    wallH: 2, eye: 50, fov: 70, fog: 0, fogColor: "#000000", ceilOn: false, nearest: false,
+    wallH: 2, hallW: 1, eye: 50, fov: 70, fog: 0, fogColor: "#000000", ceilOn: false, nearest: false,
     speed: 1.6, turn: 120, straight: 50, smart: 80, bob: 0, smooth: false,
     theme: "stone", pillars: false, pillarGap: 2, pillarW: 16, pillarD: 8, trimOn: false, trimColor: "#74482F",
   };
@@ -258,7 +260,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     loops: (v) => v + "%", windy: (v) => v + "%", wallH: (v) => (v / S).toFixed(2) + "マス",
     eye: (v) => v + "%", fov: (v) => v + "°", fog: (v) => (v == 0 ? "なし" : v + ""),
     speed: (v) => (+v).toFixed(1) + "マス/秒", turn: (v) => v + "°/秒", straight: (v) => v + "%", smart: (v) => v + "%", bob: (v) => (v == 0 ? "なし" : v + ""),
-    pillarGap: (v) => v + "マスごと", pillarW: (v) => v + "%", pillarD: (v) => v + "%",
+    pillarGap: (v) => (v > 8 ? "角と出入口だけ" : v + "マスごと"), hallW: (v) => (+v).toFixed(1) + "倍", pillarW: (v) => v + "%", pillarD: (v) => v + "%",
   };
   const regenKeys = new Set(["size", "rooms", "roomMax", "loops", "windy"]);
   const trimKeys = new Set(["pillarGap", "pillarW", "pillarD"]);
@@ -557,47 +559,82 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   sky.renderOrder = -1;
   scene.add(sky);
 
-  let world = null; // {map, walls, floor, ceil}
+  let world = null; // {map, grid, walls, floor, ceil, trim}
   function applyMaterials() {
-    if (tex.wall) { tex.wall.repeat.set(1, P.wallH / S); wallMat.map = tex.wall; wallMat.needsUpdate = true; }
-    if (world && tex.floor) { tex.floor.repeat.set(world.map.W, world.map.H); }
-    if (tex.floor) { floorMat.map = tex.floor; floorMat.needsUpdate = true; }
-    if (world && tex.ceil) { tex.ceil.repeat.set(world.map.W, world.map.H); }
-    if (tex.ceil) { ceilMat.map = tex.ceil; ceilMat.needsUpdate = true; }
+    if (tex.wall) { tex.wall.repeat.set(1, 1); wallMat.map = tex.wall; wallMat.needsUpdate = true; }
+    const tw = world ? world.grid.E(world.map.W) / S : 1, th = world ? world.grid.E(world.map.H) / S : 1;
+    if (tex.floor) { tex.floor.repeat.set(tw, th); floorMat.map = tex.floor; floorMat.needsUpdate = true; }
+    if (tex.ceil) { tex.ceil.repeat.set(tw, th); ceilMat.map = tex.ceil; ceilMat.needsUpdate = true; }
     if (tex.sky) { tex.sky.repeat.set(1, 1); skyMat.map = tex.sky; skyMat.needsUpdate = true; }
   }
 
-  function buildWorld() {
-    if (world) {
+  // Passages sit on odd rows/columns and walls on even ones, so the corridor width only resizes the odd ones.
+  // E(i) is where tile i starts; tile centers stay evenly spaced, so the walker maps to the world linearly.
+  function makeGrid() {
+    const a = P.hallW * S, b = S;
+    return {
+      E: (i) => Math.ceil(i / 2) * b + Math.floor(i / 2) * a,
+      step: (a + b) / 2,
+      toWorld: (v) => b / 2 + v * (a + b) / 2,
+    };
+  }
+  // every wall face that borders a floor tile: f is its position across the face, t0..t1 its extent along it
+  function forEachFace(cb) {
+    const { map, grid } = world;
+    for (let y = 0; y < map.H; y++) for (let x = 0; x < map.W; x++) {
+      if (!map.isFloor(x, y)) continue;
+      for (let d = 0; d < 4; d++) {
+        const [dx, dy] = DIRS[d];
+        if (map.isFloor(x + dx, y + dy)) continue;
+        const n = dx ? x : y, t = dx ? y : x;
+        cb(x, y, d, (dx || dy) > 0 ? grid.E(n + 1) : grid.E(n), grid.E(t), grid.E(t + 1));
+      }
+    }
+  }
+
+  function buildGeometry() {
+    if (world.walls) {
       scene.remove(world.walls, world.floor, world.ceil);
       world.walls.geometry.dispose(); world.floor.geometry.dispose(); world.ceil.geometry.dispose();
     }
-    const map = generateMap(P);
-    const { W, H } = map;
-    const list = [];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      if (map.isFloor(x, y)) continue;
-      if (map.isFloor(x + 1, y) || map.isFloor(x - 1, y) || map.isFloor(x, y + 1) || map.isFloor(x, y - 1)) list.push([x, y]);
-    }
-    const geo = new THREE.BoxGeometry(S, P.wallH, S);
-    const walls = new THREE.InstancedMesh(geo, wallMat, Math.max(1, list.length));
-    const m = new THREE.Matrix4();
-    list.forEach(([x, y], i) => { m.makeTranslation(x * S, P.wallH / 2, y * S); walls.setMatrixAt(i, m); });
-    walls.count = list.length;
-    walls.instanceMatrix.needsUpdate = true;
+    world.grid = makeGrid();
+    const { map, grid } = world, H = P.wallH;
+    const pos = [], nor = [], uv = [], idx = [];
+    forEachFace((x, y, d, f, t0, t1) => {
+      const [dx, dy] = DIRS[d];
+      // corners left to right as seen from the floor; u follows the world position so the pattern carries on across faces
+      const s = dx || -dy, ends = s > 0 ? [t0, t1] : [t1, t0], base = pos.length / 3;
+      for (const [tc, h] of [[ends[0], 0], [ends[1], 0], [ends[1], H], [ends[0], H]]) {
+        pos.push(...(dx ? [f, h, tc] : [tc, h, f]));
+        nor.push(-dx, 0, -dy);
+        uv.push((s * tc) / S, h / S);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const walls = new THREE.Mesh(geo, wallMat);
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), floorMat);
+    const tw = grid.E(map.W), th = grid.E(map.H);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(tw, th), floorMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set((W - 1) * S / 2, 0, (H - 1) * S / 2);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), ceilMat);
+    floor.position.set(tw / 2, 0, th / 2);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(tw, th), ceilMat);
     ceil.rotation.x = Math.PI / 2;
-    ceil.position.set((W - 1) * S / 2, P.wallH, (H - 1) * S / 2);
+    ceil.position.set(tw / 2, H, th / 2);
     ceil.visible = P.ceilOn;
     scene.add(walls, floor, ceil);
-    if (world && world.trim) disposeTrim();
-    world = { map, walls, floor, ceil, trim: null };
+    Object.assign(world, { walls, floor, ceil });
     buildTrim();
     applyMaterials();
+  }
+  function buildWorld() {
+    const map = generateMap(P);
+    if (world) world.map = map; else world = { map };
+    buildGeometry();
     resetWalker();
     drawMinimapBase();
   }
@@ -612,38 +649,33 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     world.trim = null;
   }
   // Pillars stand on the vertical edges of wall faces: at every end of a straight run of wall
-  // (corners, openings) and every pillarGap tiles along it. Trim runs along the foot and top of each face.
+  // (corners, openings) and, unless set to corners only, every pillarGap tiles along it.
+  // Trim runs along the foot and top of each face.
   function buildTrim() {
     if (world.trim) disposeTrim();
-    const { map } = world, H = P.wallH;
+    const { map, grid } = world, H = P.wallH;
     const pw = (P.pillarW / 100) * S, pd = (P.pillarD / 100) * S;
     const bh = 0.16, bd = Math.min(0.05, pd * 0.6), ch = 0.1;
+    const cornersOnly = P.pillarGap > 8;
     const pillars = [], boards = [], crowns = [], seen = new Set();
-    // box centered at (cx, cy, cz); along: size along the face, out: size away from the face
-    const box = (list, d, cx, cy, cz, along, out, h) => list.push(DIRS[d][0] ? [cx, cy, cz, out, h, along] : [cx, cy, cz, along, h, out]);
-    for (let y = 0; y < map.H; y++) for (let x = 0; x < map.W; x++) {
-      if (!map.isFloor(x, y)) continue;
-      for (let d = 0; d < 4; d++) {
-        const [dx, dy] = DIRS[d];
-        if (map.isFloor(x + dx, y + dy)) continue;
-        // face between this floor tile and the wall in direction d
-        const fx = (x + dx / 2) * S, fz = (y + dy / 2) * S;
-        const ix = fx - dx * bd / 2, iz = fz - dy * bd / 2;
-        box(boards, d, ix, bh / 2, iz, S, bd, bh);
-        box(crowns, d, ix, H - ch / 2, iz, S, bd, ch);
-        const [tx, ty] = DIRS[(d + 1) % 4];
-        for (const e of [-1, 1]) {
-          const nx = x + tx * e, ny = y + ty * e;
-          const runs = map.isFloor(nx, ny) && !map.isFloor(nx + dx, ny + dy);
-          const k = (tx ? x : y) + ((tx ? tx : ty) * e + 1) / 2;
-          if (runs && k % P.pillarGap !== 0) continue;
-          const key = (2 * x + dx + tx * e) + "," + (2 * y + dy + ty * e) + "," + d;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          box(pillars, d, fx + tx * e * S / 2 - dx * pd / 2, H / 2, fz + ty * e * S / 2 - dy * pd / 2, pw, pd, H);
-        }
+    // box at n across the face and t along it; along: size along the face, out: size away from the face
+    const box = (list, d, n, cy, t, along, out, h) => list.push(DIRS[d][0] ? [n, cy, t, out, h, along] : [t, cy, n, along, h, out]);
+    forEachFace((x, y, d, f, t0, t1) => {
+      const [dx, dy] = DIRS[d], nd = dx || dy, inset = f - nd * bd / 2;
+      box(boards, d, inset, bh / 2, (t0 + t1) / 2, t1 - t0, bd, bh);
+      box(crowns, d, inset, H - ch / 2, (t0 + t1) / 2, t1 - t0, bd, ch);
+      const t = dx ? y : x;
+      for (const s of [-1, 1]) {
+        const ax = dx ? x : x + s, ay = dx ? y + s : y;
+        const runs = map.isFloor(ax, ay) && !map.isFloor(ax + dx, ay + dy);
+        const k = s < 0 ? t : t + 1;
+        if (runs && (cornersOnly || k % P.pillarGap !== 0)) continue;
+        const key = d + "|" + (dx ? x : y) + "|" + k;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        box(pillars, d, f - nd * pd / 2, H / 2, grid.E(k), pw, pd, H);
       }
-    }
+    });
     const group = new THREE.Group();
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
     const add = (list, visible) => {
@@ -783,7 +815,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const canMove = remaining < 1e-4 || (P.smooth && remaining < Math.PI * 0.6);
     if (!canMove) return;
     const dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
-    const mv = P.speed * dt;
+    const mv = P.speed * dt * S / world.grid.step; // speed is in world units, so wide corridors don't feel faster
     if (dist <= mv) {
       w.x = w.tx; w.y = w.ty; w.traveled += dist;
       w.px = w.cx; w.py = w.cy; w.cx = w.tx; w.cy = w.ty;
@@ -867,7 +899,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       P[key] = parseFloat(el.value);
       show();
       if (regenKeys.has(key)) { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 120); }
-      else if (key === "wallH") { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 120); }
+      else if (key === "wallH" || key === "hallW") { clearTimeout(regenTimer); regenTimer = setTimeout(buildGeometry, 120); }
       else if (key === "fov") { camera.fov = P.fov; camera.updateProjectionMatrix(); }
       else if (key === "fog") applyFog();
       else if (trimKeys.has(key)) { clearTimeout(regenTimer); regenTimer = setTimeout(buildTrim, 60); }
@@ -1017,7 +1049,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     if (world) {
       const eye = P.wallH * (P.eye / 100);
       const bob = Math.sin(walker.traveled * Math.PI * 2) * (P.bob / 100) * 0.12 * P.wallH;
-      camera.position.set(walker.x * S, eye + bob, walker.y * S);
+      camera.position.set(world.grid.toWorld(walker.x), eye + bob, world.grid.toWorld(walker.y));
       camera.rotation.set(0, walker.yaw, 0);
       sky.position.copy(camera.position);
     }
