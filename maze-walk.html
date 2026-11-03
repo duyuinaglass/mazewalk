@@ -156,6 +156,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
 
     <section>
       <h2>見た目</h2>
+      <div class="color-row"><label for="theme">テクスチャのセット</label>
+        <select id="theme"><option value="stone">石造り</option><option value="hall">洋館の廊下</option></select></div>
       <div class="tex" data-slot="wall"><img alt="壁のテクスチャ"><span>壁</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
       <div class="tex" data-slot="floor"><img alt="床のテクスチャ"><span>床</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
       <div class="tex" data-slot="ceil"><img alt="天井のテクスチャ"><span>天井</span><label class="btn">画像を選ぶ<input type="file" accept="image/*"></label><button class="reset">元に戻す</button></div>
@@ -171,6 +173,19 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       <div class="row"><label class="top" for="fog">霧の濃さ<output id="fog-out"></output></label>
         <input type="range" id="fog" min="0" max="100" step="1" value="0"></div>
       <div class="color-row"><label for="fogColor">霧の色</label><input type="color" id="fogColor" value="#000000"></div>
+    </section>
+
+    <section>
+      <h2>柱と縁取り</h2>
+      <label class="check"><input type="checkbox" id="pillars">壁に柱を立てる（角と出入口には必ず立ちます）</label>
+      <div class="row"><label class="top" for="pillarGap">柱の間隔<output id="pillarGap-out"></output></label>
+        <input type="range" id="pillarGap" min="1" max="8" step="1" value="2"></div>
+      <div class="row"><label class="top" for="pillarW">柱の幅（1マスに対する割合）<output id="pillarW-out"></output></label>
+        <input type="range" id="pillarW" min="4" max="40" step="1" value="16"></div>
+      <div class="row"><label class="top" for="pillarD">柱の出っ張り<output id="pillarD-out"></output></label>
+        <input type="range" id="pillarD" min="2" max="30" step="1" value="8"></div>
+      <label class="check"><input type="checkbox" id="trimOn">幅木と天井際の縁を付ける</label>
+      <div class="color-row"><label for="trimColor">柱と縁の色</label><input type="color" id="trimColor" value="#74482F"></div>
     </section>
 
     <section>
@@ -236,14 +251,17 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     size: 31, rooms: 8, roomMax: 7, loops: 25, windy: 60, seed: 1985,
     wallH: 2, eye: 50, fov: 70, fog: 0, fogColor: "#000000", ceilOn: false, nearest: false,
     speed: 1.6, turn: 120, straight: 50, smart: 80, bob: 0, smooth: false,
+    theme: "stone", pillars: false, pillarGap: 2, pillarW: 16, pillarD: 8, trimOn: false, trimColor: "#74482F",
   };
   const fmt = {
     size: (v) => v + "×" + v, rooms: (v) => v + "", roomMax: (v) => v + "マス",
     loops: (v) => v + "%", windy: (v) => v + "%", wallH: (v) => (v / S).toFixed(2) + "マス",
     eye: (v) => v + "%", fov: (v) => v + "°", fog: (v) => (v == 0 ? "なし" : v + ""),
     speed: (v) => (+v).toFixed(1) + "マス/秒", turn: (v) => v + "°/秒", straight: (v) => v + "%", smart: (v) => v + "%", bob: (v) => (v == 0 ? "なし" : v + ""),
+    pillarGap: (v) => v + "マスごと", pillarW: (v) => v + "%", pillarD: (v) => v + "%",
   };
   const regenKeys = new Set(["size", "rooms", "roomMax", "loops", "windy"]);
+  const trimKeys = new Set(["pillarGap", "pillarW", "pillarD"]);
 
   // ---------- map generation ----------
   function generateMap(p) {
@@ -425,7 +443,70 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     }
     return c;
   }
-  const DEFAULTS = { wall: defBrick, floor: defFloor, ceil: defCeil, sky: defSky };
+  // hallway set: wallpaper with stripes and vines, teal carpet, staggered ceiling tiles
+  function defWallpaper() {
+    const N = 512, c = makeCanvas(N, N), x = c.getContext("2d"), r = mulberry32(23);
+    x.fillStyle = "#E0957C"; x.fillRect(0, 0, N, N);
+    x.fillStyle = "#CF6A52"; x.fillRect(66, 0, 26, N); x.fillRect(332, 0, 14, N);
+    x.fillStyle = "#7F896F"; x.fillRect(108, 0, 18, N); x.fillRect(438, 0, 26, N);
+    x.lineCap = "round"; x.lineJoin = "round";
+    // a wavy stem that tiles vertically, with a curl at every bend
+    const vine = (cx, amp, phase, color, width) => {
+      const path = new Path2D();
+      const k = (Math.PI * 4) / N;
+      for (let y = -8; y <= N + 8; y += 4) {
+        const px = cx + amp * Math.sin(k * y + phase);
+        if (y === -8) path.moveTo(px, y); else path.lineTo(px, y);
+      }
+      for (let n = -1; n <= 4; n++) {
+        const py = (Math.PI / 2 + n * Math.PI - phase) / k;
+        const s = n % 2 === 0 ? 1 : -1;
+        const px = cx + amp * s, R = 26 + r() * 16, turn = r() < 0.5 ? 1 : -1;
+        const ox = px + s * R, a0 = s > 0 ? Math.PI : 0;
+        path.moveTo(px, py);
+        for (let u = 0; u <= 1.0001; u += 0.025) {
+          const rr = R * (1 - 0.8 * u), a = a0 + s * turn * u * Math.PI * 2.3;
+          path.lineTo(ox + rr * Math.cos(a), py + rr * Math.sin(a));
+        }
+      }
+      x.strokeStyle = color; x.lineWidth = width;
+      for (const dx of [-N, 0, N]) { x.save(); x.translate(dx, 0); x.stroke(path); x.restore(); }
+    };
+    vine(190, 55, 0, "#7E886C", 12);
+    vine(300, 40, 1.7, "#C9604B", 9);
+    vine(470, 34, 3.1, "#7E886C", 8);
+    vine(36, 28, 4.5, "#C9604B", 7);
+    noise(x, N, N, r, 3000, 0.025);
+    return c;
+  }
+  function defCarpet() {
+    const c = makeCanvas(256, 256), x = c.getContext("2d"), r = mulberry32(29);
+    x.fillStyle = "#4C7682"; x.fillRect(0, 0, 256, 256);
+    noise(x, 256, 256, r, 5000, 0.025);
+    return c;
+  }
+  function defCeilTiles() {
+    const c = makeCanvas(256, 256), x = c.getContext("2d"), r = mulberry32(31);
+    x.fillStyle = "#FBD7B4"; x.fillRect(0, 0, 256, 256);
+    x.fillStyle = "rgba(150,105,70,0.18)";
+    for (let i = 0; i < 500; i++) x.fillRect(r() * 256, r() * 256, 1.5, 1.5);
+    for (let row = 0; row < 4; row++) {
+      const off = row % 2 ? 64 : 0, by = row * 64;
+      for (let col = -1; col < 2; col++) {
+        const bx = col * 128 + off;
+        x.strokeStyle = "#FFEBD6"; x.lineWidth = 2;
+        x.beginPath(); x.moveTo(bx + 3, by + 61); x.lineTo(bx + 3, by + 3); x.lineTo(bx + 125, by + 3); x.stroke();
+        x.strokeStyle = "#D6AB88"; x.lineWidth = 3;
+        x.strokeRect(bx, by, 128, 64);
+      }
+    }
+    return c;
+  }
+  const THEMES = {
+    stone: { wall: defBrick, floor: defFloor, ceil: defCeil, sky: defSky },
+    hall: { wall: defWallpaper, floor: defCarpet, ceil: defCeilTiles, sky: defSky },
+  };
+  const SLOTS = ["wall", "floor", "ceil", "sky"];
 
   // ---------- three.js setup ----------
   const canvas = $("#view");
@@ -464,7 +545,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     applyMaterials();
   }
   function resetSlot(slot) {
-    const c = DEFAULTS[slot]();
+    const c = THEMES[P.theme][slot]();
     setSlot(slot, c, c.toDataURL("image/png"));
   }
 
@@ -513,10 +594,71 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     ceil.position.set((W - 1) * S / 2, P.wallH, (H - 1) * S / 2);
     ceil.visible = P.ceilOn;
     scene.add(walls, floor, ceil);
-    world = { map, walls, floor, ceil };
+    if (world && world.trim) disposeTrim();
+    world = { map, walls, floor, ceil, trim: null };
+    buildTrim();
     applyMaterials();
     resetWalker();
     drawMinimapBase();
+  }
+
+  // ---------- pillars and trim ----------
+  const trimMat = new THREE.MeshLambertMaterial();
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  function applyTrimColor() { trimMat.color.setStyle(P.trimColor).convertSRGBToLinear(); }
+  function disposeTrim() {
+    scene.remove(world.trim);
+    world.trim.children.forEach((m) => m.dispose && m.dispose());
+    world.trim = null;
+  }
+  // Pillars stand on the vertical edges of wall faces: at every end of a straight run of wall
+  // (corners, openings) and every pillarGap tiles along it. Trim runs along the foot and top of each face.
+  function buildTrim() {
+    if (world.trim) disposeTrim();
+    const { map } = world, H = P.wallH;
+    const pw = (P.pillarW / 100) * S, pd = (P.pillarD / 100) * S;
+    const bh = 0.16, bd = Math.min(0.05, pd * 0.6), ch = 0.1;
+    const pillars = [], boards = [], crowns = [], seen = new Set();
+    // box centered at (cx, cy, cz); along: size along the face, out: size away from the face
+    const box = (list, d, cx, cy, cz, along, out, h) => list.push(DIRS[d][0] ? [cx, cy, cz, out, h, along] : [cx, cy, cz, along, h, out]);
+    for (let y = 0; y < map.H; y++) for (let x = 0; x < map.W; x++) {
+      if (!map.isFloor(x, y)) continue;
+      for (let d = 0; d < 4; d++) {
+        const [dx, dy] = DIRS[d];
+        if (map.isFloor(x + dx, y + dy)) continue;
+        // face between this floor tile and the wall in direction d
+        const fx = (x + dx / 2) * S, fz = (y + dy / 2) * S;
+        const ix = fx - dx * bd / 2, iz = fz - dy * bd / 2;
+        box(boards, d, ix, bh / 2, iz, S, bd, bh);
+        box(crowns, d, ix, H - ch / 2, iz, S, bd, ch);
+        const [tx, ty] = DIRS[(d + 1) % 4];
+        for (const e of [-1, 1]) {
+          const nx = x + tx * e, ny = y + ty * e;
+          const runs = map.isFloor(nx, ny) && !map.isFloor(nx + dx, ny + dy);
+          const k = (tx ? x : y) + ((tx ? tx : ty) * e + 1) / 2;
+          if (runs && k % P.pillarGap !== 0) continue;
+          const key = (2 * x + dx + tx * e) + "," + (2 * y + dy + ty * e) + "," + d;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          box(pillars, d, fx + tx * e * S / 2 - dx * pd / 2, H / 2, fz + ty * e * S / 2 - dy * pd / 2, pw, pd, H);
+        }
+      }
+    }
+    const group = new THREE.Group();
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+    const add = (list, visible) => {
+      const mesh = new THREE.InstancedMesh(unitBox, trimMat, Math.max(1, list.length));
+      list.forEach(([cx, cy, cz, sx, sy, sz], i) => mesh.setMatrixAt(i, m.compose(pos.set(cx, cy, cz), q, sc.set(sx, sy, sz))));
+      mesh.count = list.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.visible = visible;
+      group.add(mesh);
+    };
+    add(pillars, P.pillars);
+    add(boards, P.trimOn);
+    add(crowns, P.trimOn && P.ceilOn);
+    scene.add(group);
+    world.trim = group;
   }
 
   // ---------- walker ----------
@@ -692,7 +834,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       const far = 4 + (100 - P.fog) * 0.9;
       scene.fog = new THREE.Fog(new THREE.Color(P.fogColor), far * 0.15, far);
     }
-    wallMat.needsUpdate = floorMat.needsUpdate = ceilMat.needsUpdate = true;
+    wallMat.needsUpdate = floorMat.needsUpdate = ceilMat.needsUpdate = trimMat.needsUpdate = true;
   }
   function setResolution() {
     const [w, h] = $("#res").value.split("x").map(Number);
@@ -728,7 +870,25 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       else if (key === "wallH") { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 120); }
       else if (key === "fov") { camera.fov = P.fov; camera.updateProjectionMatrix(); }
       else if (key === "fog") applyFog();
+      else if (trimKeys.has(key)) { clearTimeout(regenTimer); regenTimer = setTimeout(buildTrim, 60); }
     });
+  });
+  const syncChecks = () => ["ceilOn", "pillars", "trimOn"].forEach((k) => { $("#" + k).checked = P[k]; });
+  $("#pillars").addEventListener("change", (e) => { P.pillars = e.target.checked; buildTrim(); });
+  $("#trimOn").addEventListener("change", (e) => { P.trimOn = e.target.checked; buildTrim(); });
+  $("#trimColor").addEventListener("input", (e) => { P.trimColor = e.target.value; applyTrimColor(); });
+  // the hallway set also turns on the ceiling, pillars and trim it was designed with
+  $("#theme").addEventListener("change", (e) => {
+    P.theme = e.target.value;
+    SLOTS.forEach(resetSlot);
+    if (P.theme === "hall") {
+      Object.assign(P, { ceilOn: true, pillars: true, trimOn: true, trimColor: "#74482F" });
+      $("#trimColor").value = P.trimColor;
+      applyTrimColor();
+      syncChecks();
+      world.ceil.visible = true;
+      buildTrim();
+    }
   });
   $("#seed").addEventListener("change", (e) => { P.seed = parseInt(e.target.value, 10) || 0; buildWorld(); });
   $("#newMap").addEventListener("click", () => {
@@ -736,7 +896,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#seed").value = P.seed;
     buildWorld();
   });
-  $("#ceilOn").addEventListener("change", (e) => { P.ceilOn = e.target.checked; if (world) world.ceil.visible = P.ceilOn; });
+  $("#ceilOn").addEventListener("change", (e) => { P.ceilOn = e.target.checked; if (world) { world.ceil.visible = P.ceilOn; buildTrim(); } });
   $("#nearest").addEventListener("change", (e) => { P.nearest = e.target.checked; Object.values(tex).forEach(applyFilter); });
   $("#fogColor").addEventListener("input", (e) => { P.fogColor = e.target.value; applyFog(); });
   $("#smooth").addEventListener("change", (e) => { P.smooth = e.target.checked; });
@@ -873,8 +1033,9 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   }
 
   // ---------- init ----------
-  Object.keys(DEFAULTS).forEach(resetSlot);
-  $("#ceilOn").checked = P.ceilOn;
+  SLOTS.forEach(resetSlot);
+  applyTrimColor();
+  syncChecks();
   $("#seed").value = P.seed;
   setResolution();
   applyFog();
