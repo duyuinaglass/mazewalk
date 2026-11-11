@@ -205,8 +205,9 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
 
     <section>
       <h2>表示</h2>
-      <div class="row"><label class="top" for="rows">画面の縦のマス数（目安）<output id="rows-out"></output></label>
-        <input type="range" id="rows" min="6" max="24" step="1"></div>
+      <div class="color-row"><label for="dot">ドットの細かさ</label>
+        <select id="dot"></select></div>
+      <p class="hint">下に行くほどドットが小さくなり、画面に映る範囲が広がります。ドットが崩れないよう、1ドットは必ず整数ピクセルで描きます。</p>
       <label class="check"><input type="checkbox" id="anim">海の波や沼を動かす</label>
     </section>
   </aside>
@@ -264,13 +265,13 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   // ---------- parameters ----------
   const P = {
     size: 128, land: 40, scale: 2, mount: 35, forest: 45, dry: 18, cold: 15, swamp: 4, towns: 40, seed: 1986,
-    party: 3, speed: 3.5, detour: 25, rest: 1.5, fade: true, rows: 11, anim: true,
+    party: 3, speed: 3.5, detour: 25, rest: 1.5, fade: true, dot: 4, anim: true,
   };
   const fmt = {
     land: (v) => v + "%", scale: (v) => ["", "大きな大陸", "やや大きい", "ふつう", "やや細かい", "細かい", "島だらけ"][v],
     mount: (v) => v + "%", forest: (v) => v + "%", dry: (v) => v + "%", cold: (v) => v + "%", swamp: (v) => v + "%",
     towns: (v) => v + "%", party: (v) => (v == 0 ? "ひとり旅" : v + "人"), speed: (v) => (+v).toFixed(1) + "マス/秒",
-    detour: (v) => v + "%", rest: (v) => (v == 0 ? "立ち寄らない" : (+v).toFixed(1) + "秒"), rows: (v) => v + "マス",
+    detour: (v) => v + "%", rest: (v) => (v == 0 ? "立ち寄らない" : (+v).toFixed(1) + "秒"),
   };
   const regenKeys = new Set(["land", "scale", "mount", "forest", "dry", "cold", "swamp", "towns"]);
 
@@ -345,26 +346,40 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const qMount = quantile(mss, 1 - mk * 0.32), qHill = quantile(mss, 1 - mk * 0.5), qPeak = quantile(mss, 1 - mk * 0.07);
     const qBeach = quantile(lh, 0.07);
     const qCold = p.cold > 0 ? quantile(tms, p.cold / 100) : -1;
-    // deserts favour dry *and* warm ground, and keep a margin from the snow
+    // distance (in tiles, across land and sea) from the nearest cold land
+    const coldDist = new Int32Array(NN).fill(1 << 20);
+    {
+      const q = new Int32Array(NN);
+      let h = 0, e = 0;
+      for (const i of landIdx) if (Tm[i] < qCold) { coldDist[i] = 0; q[e++] = i; }
+      while (h < e) {
+        const i = q[h++];
+        for (const j of nb4(i)) if (coldDist[j] > coldDist[i] + 1) { coldDist[j] = coldDist[i] + 1; q[e++] = j; }
+      }
+    }
+    // deserts favour dry *and* warm ground and never come within DESERT_GAP tiles of snow
+    const DESERT_GAP = Math.max(6, Math.round(N / 16));
     const dscore = (i) => (1 - M[i]) + 0.8 * Tm[i];
-    const dss = landIdx.map(dscore).sort((a, b) => a - b);
-    const qDry = p.dry > 0 ? quantile(dss, 1 - p.dry / 100) : 99;
-    const qWarm = p.cold > 0 ? quantile(tms, Math.min(1, p.cold / 100 + 0.12)) : -1;
+    const dss = landIdx.filter((i) => coldDist[i] >= DESERT_GAP).map(dscore).sort((a, b) => a - b);
+    const dryShare = landIdx.length ? Math.min(1, (p.dry / 100) * landIdx.length / Math.max(1, dss.length)) : 0;
+    const qDry = p.dry > 0 && dss.length ? quantile(dss, 1 - dryShare) : 99;
     const qSwamp = p.swamp > 0 ? quantile(ms, 1 - p.swamp / 100) : 2;
     const qForest = p.forest > 0 ? quantile(ms, Math.max(p.dry / 100, 1 - p.swamp / 100 - (p.forest / 100) * 0.6)) : 2;
     for (const i of landIdx) {
       const cold = Tm[i] < qCold;
       const s = mscore(i);
       const coastal = nb4(i).some((j) => t[j] === T.SHALLOW || t[j] === T.DEEP);
+      const desert = dscore(i) > qDry && coldDist[i] >= DESERT_GAP;
+      // the flat ground this tile stands on; mountains and hills are drawn over it
+      baseT[i] = cold ? T.SNOW : desert ? T.DESERT : T.GRASS;
       let ty;
       if (s >= qMount && mk > 0) ty = (s >= qPeak || cold) ? T.SNOWMT : T.MOUNT;
       else if (s >= qHill && mk > 0) ty = T.HILL;
-      else if (coastal && H[i] < qBeach && !cold) ty = T.BEACH;
-      else if (dscore(i) > qDry && Tm[i] > qWarm) ty = T.DESERT;
+      else if (coastal && H[i] < qBeach && coldDist[i] >= 3) ty = T.BEACH;
+      else if (desert) ty = T.DESERT;
       else if (M[i] > qSwamp && !cold) ty = T.SWAMP;
       else if (M[i] > qForest) ty = cold ? T.SNOWFOREST : T.FOREST;
       else ty = cold ? T.SNOW : T.GRASS;
-      if (ty === T.HILL && cold) ty = T.SNOW;
       t[i] = ty;
     }
     // drop lone single-tile specks of biome noise
@@ -660,7 +675,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     else if (ty === T.BRIDGE) { paintWater(g, T.SHALLOW, m, f, v); paintBridge(g, bd); }
     else if (POI_TYPES.has(ty)) { paintGround(g, b || T.GRASS, v); paintPoi(g, ty); }
     else {
-      paintGround(g, ty, v);
+      const raised = ty === T.HILL || ty === T.MOUNT || ty === T.SNOWMT;
+      paintGround(g, raised ? b || T.GRASS : ty, v);
       if (ty === T.SWAMP) {
         const r = mulberry32(v * 5 + 9);
         for (let k = 0; k < 2; k++) {
@@ -674,12 +690,14 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
         for (const [x, y] of layouts[v % 4]) paintTree(g, x, y, sn);
       } else if (ty === T.HILL) {
         const hills = v % 2 ? [[8, 12, 6, 5]] : [[5, 8, 4, 3], [11, 13, 4, 4]];
+        // hill colours follow the ground: grassy, sandy or snowy
+        const hc = b === T.DESERT ? [C.desL, C.desD, "#9a7638"] : b === T.SNOW ? [C.snowW, C.snowD, "#8aa2be"] : [C.gL, C.gD, C.treeD];
         for (const [cx, by, rx, ry] of hills) {
           for (let x = -rx; x <= rx; x++) {
             const hh = Math.round(ry * Math.sqrt(Math.max(0, 1 - (x / (rx + 0.5)) ** 2)));
             for (let y = 0; y <= hh; y++) {
-              let col = x > rx * 0.3 ? C.gD : C.gL;
-              if (y === hh) col = C.treeD;
+              let col = x > rx * 0.3 ? hc[1] : hc[0];
+              if (y === hh) col = hc[2];
               g.px(col, cx + x, by - y);
             }
           }
@@ -990,13 +1008,24 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   const out = canvas.getContext("2d");
   const native = document.createElement("canvas");
   const nctx = native.getContext("2d");
+  const DOT_SIZES = [8, 7, 6, 5, 4, 3, 2, 1]; // screen pixels per dot, coarse to fine
   let Z = 4;
   function setResolution() {
     const [w, h] = $("#res").value.split("x").map(Number);
     canvas.width = w; canvas.height = h;
-    Z = Math.max(1, Math.round(h / (P.rows * TS)));
+    Z = P.dot;
     native.width = Math.ceil(w / Z); native.height = Math.ceil(h / Z);
-    $("#rows-out").textContent = P.rows + "マス（実際は " + (native.height / TS).toFixed(1) + "マス・1ドット" + Z + "px）";
+    // list the choices with how much of the map each shows at this resolution
+    const sel = $("#dot");
+    sel.innerHTML = "";
+    DOT_SIZES.forEach((z, k) => {
+      const o = document.createElement("option");
+      o.value = z;
+      const name = k === 0 ? "いちばん粗い" : k === DOT_SIZES.length - 1 ? "いちばん細かい" : (k + 1) + "段目";
+      o.textContent = `${name}（1ドット${z}px・縦${(h / z / TS).toFixed(1)}マス）`;
+      sel.appendChild(o);
+    });
+    sel.value = Z;
     fitCanvas();
   }
   function fitCanvas() {
@@ -1016,7 +1045,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     return [a[0] + wrapD(b[0] - a[0], N) * t, a[1] + wrapD(b[1] - a[1], N) * t];
   }
   function drawChar(ch, dir, phase, sx, sy) {
-    const seq = ch.seq, f = ch.frames[dir][seq[phase % seq.length]];
+    const seq = ch.seq, f = ch.frames[dir][seq[mod(phase, seq.length)]];
     nctx.drawImage(f, Math.round(sx + TS / 2 - ch.w / 2), Math.round(sy + TS - ch.h));
   }
   function render(time) {
@@ -1135,7 +1164,6 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       show();
       if (regenKeys.has(key)) { clearTimeout(regenTimer); regenTimer = setTimeout(buildWorld, 150); }
       else if (key === "party") rebuildParty();
-      else if (key === "rows") setResolution();
     });
   });
   $("#size").addEventListener("change", (e) => { P.size = parseInt(e.target.value, 10); buildWorld(); });
@@ -1212,6 +1240,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#pause").textContent = paused ? "再開" : "一時停止";
   });
   $("#res").addEventListener("change", setResolution);
+  $("#dot").addEventListener("change", (e) => { P.dot = parseInt(e.target.value, 10); setResolution(); });
 
   // ---------- recording ----------
   let recorder = null, chunks = [], recStart = 0, lastBlob = null, lastMime = "";
@@ -1247,7 +1276,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#rec").textContent = "録画を停止";
     $("#rec").classList.remove("primary");
     $("#rec").classList.add("recording");
-    $("#res").disabled = $("#fps").disabled = $("#rows").disabled = true;
+    $("#res").disabled = $("#fps").disabled = $("#dot").disabled = true;
     $("#save").hidden = true;
     status("録画中です。このタブを表示したままにしてください（裏に回すと映像が止まります）。");
   }
@@ -1258,7 +1287,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#rec").textContent = "録画を開始";
     $("#rec").classList.add("primary");
     $("#rec").classList.remove("recording");
-    $("#res").disabled = $("#fps").disabled = $("#rows").disabled = false;
+    $("#res").disabled = $("#fps").disabled = $("#dot").disabled = false;
   }
   $("#rec").addEventListener("click", () => (recorder ? stopRec() : startRec()));
   document.addEventListener("visibilitychange", () => {
@@ -1294,7 +1323,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   // ---------- loop ----------
   let last = performance.now(), clock = 0, mmT = 0;
   function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000);
+    // the first rAF timestamp can be slightly earlier than performance.now() at start-up
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
     if (!paused) { clock += dt * 1000; if (world) stepParty(dt); }
     if (world) render(clock);
