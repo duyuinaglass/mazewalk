@@ -1009,9 +1009,6 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#res").disabled = $("#fps").disabled = false;
   }
   $("#rec").addEventListener("click", () => (recorder ? stopRec() : startRec()));
-  document.addEventListener("visibilitychange", () => {
-    if (recorder && document.hidden) status("タブが裏に回ったため、その間の映像は止まっています。");
-  });
 
   $("#save").addEventListener("click", async () => {
     if (!lastBlob) return;
@@ -1042,8 +1039,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
 
   // ---------- loop ----------
   let last = performance.now(), mmT = 0;
-  function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000);
+  function frame(now, fromTimer) {
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
     if (world && !paused) stepWalker(dt);
     if (world) {
@@ -1061,8 +1058,15 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       const dur = parseFloat($("#duration").value) || 0;
       if (dur > 0 && el >= dur) stopRec();
     }
-    requestAnimationFrame(frame);
+    if (!fromTimer) requestAnimationFrame(frame);
   }
+  // A hidden tab gets no animation frames, so a timer in a worker (which is not throttled) keeps
+  // the walk and the recording going while another tab or window is in front.
+  try {
+    const url = URL.createObjectURL(new Blob(["setInterval(function(){postMessage(0)},16)"], { type: "text/javascript" }));
+    const ticker = new Worker(url);
+    ticker.onmessage = () => { if (document.hidden) frame(performance.now(), true); };
+  } catch (e) { /* without workers the loop simply pauses while the tab is hidden */ }
 
   // ---------- init ----------
   SLOTS.forEach(resetSlot);

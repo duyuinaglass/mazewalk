@@ -168,10 +168,14 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       <canvas id="heroPreview" width="88" height="24" aria-label="主人公の4方向の歩き姿"></canvas>
       <div class="color-row"><label for="preset">職業</label>
         <select id="preset"></select></div>
+      <div id="creditNote" hidden>
+        <p class="hint">キャラクター：暗鳴ニュイ（キャラクターデザイン：碧華）。非商用・無償での利用が条件で、公開するときは「暗鳴ニュイ」と表記してください。うさ耳や髪・目の色は変えず、R-18などの表現には使えません。詳しくは <a href="https://aoka45.wixsite.com/annanyui/terms" target="_blank" rel="noopener">公式の利用規約</a> を確認してください。</p>
+        <label class="check"><input type="checkbox" id="credit">映像の左下にクレジットを入れる</label>
+      </div>
       <div class="color-row"><label for="head">頭</label>
         <select id="head">
           <option value="hair">髪のみ</option><option value="helmet">兜</option>
-          <option value="wizard">とんがり帽子</option><option value="hood">頭巾</option>
+          <option value="wizard">とんがり帽子</option><option value="hood">頭巾</option><option value="bunny">うさ耳</option>
         </select></div>
       <label class="check"><input type="checkbox" id="cape">マントを着ける</label>
       <div class="colors">
@@ -207,15 +211,25 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
 
     <section>
       <h2>表示</h2>
-      <div class="color-row"><label for="art">ドットの細かさ</label>
+      <div class="color-row"><label for="art">描写の細かさ</label>
         <select id="art">
           <option value="16">8ビット風（1マス16ドット）</option>
           <option value="24">中間（1マス24ドット）</option>
           <option value="32">16ビット風（1マス32ドット）</option>
+          <option value="48">高精細（1マス48ドット）</option>
+          <option value="64">超高精細（1マス64ドット）</option>
         </select></div>
-      <p class="hint">絵そのものの細かさです。細かくするほど1マスを多くのドットで描き、陰影も増えます。画面に映る範囲は変わりません。</p>
+      <p class="hint">細かくするほど、1マスに木や山並みをたくさん描き込み、陰影も増えます。画面に映る範囲は変わりません。</p>
       <div class="row"><label class="top" for="rows">画面の縦のマス数（目安）<output id="rows-out"></output></label>
         <input type="range" id="rows" min="6" max="32" step="1"></div>
+      <div class="color-row"><label for="tod">時間帯</label>
+        <select id="tod">
+          <option value="day">昼</option>
+          <option value="dusk">夕方</option>
+          <option value="night">夜</option>
+          <option value="cycle">移り変わる（昼→夕方→夜→…）</option>
+        </select></div>
+      <p class="hint">夕方は空気が茜色に、夜は青く暗くなり、町や城に明かりがともります。</p>
       <label class="check"><input type="checkbox" id="anim">海の波や沼を動かす</label>
     </section>
   </aside>
@@ -273,7 +287,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   // ---------- parameters ----------
   const P = {
     size: 128, land: 40, scale: 2, mount: 35, forest: 45, dry: 18, cold: 15, swamp: 4, rivers: 40, towns: 40, seed: 1986,
-    party: 3, speed: 3.5, detour: 25, rest: 1.5, fade: true, art: 16, rows: 15, anim: true,
+    party: 3, speed: 3.5, detour: 25, rest: 1.5, fade: true, art: 16, rows: 15, anim: true, tod: "day", credit: false,
   };
   const fmt = {
     land: (v) => v + "%", scale: (v) => ["", "大きな大陸", "やや大きい", "ふつう", "やや細かい", "細かい", "島だらけ"][v],
@@ -356,10 +370,10 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const lh = landIdx.map((i) => H[i]).sort((a, b) => a - b);
     const ms = landIdx.map((i) => M[i]).sort((a, b) => a - b);
     const tms = landIdx.map((i) => Tm[i]).sort((a, b) => a - b);
-    const mscore = (i) => ((H[i] - sea) / (lh[lh.length - 1] - sea + 1e-6)) * 0.55 + R[i] * 0.45;
+    const mscore = (i) => ((H[i] - sea) / (lh[lh.length - 1] - sea + 1e-6)) * 0.4 + R[i] * 0.6;
     const mss = landIdx.map(mscore).sort((a, b) => a - b);
     const mk = p.mount / 100;
-    const qMount = quantile(mss, 1 - mk * 0.32), qHill = quantile(mss, 1 - mk * 0.5), qPeak = quantile(mss, 1 - mk * 0.07);
+    const qMount = quantile(mss, 1 - mk * 0.42), qHill = quantile(mss, 1 - mk * 0.62), qPeak = quantile(mss, 1 - mk * 0.07);
     const qBeach = quantile(lh, 0.07);
     const qCold = p.cold > 0 ? quantile(tms, p.cold / 100) : -1;
     // distance (in tiles, across land and sea) from the nearest cold land
@@ -596,56 +610,63 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     if (ty === T.DEEP || ty === T.SHALLOW) {
       const deep = ty === T.DEEP;
       rect(deep ? C.sea : C.shal, 0, 0, S, S);
-      if (lvl >= 1) for (let k = 0; k < Math.round(3 * s); k++) rect(deep ? C.seaM : C.shalM, ri(S - 4), ri(S), Math.round(2 * s) + ri(3), 1);
+      if (lvl >= 1) for (let k = 0; k < 3; k++) rect(deep ? C.seaM : C.shalM, ri(S - 4 * s), ri(S), Math.round(3 * s) + ri(3), Math.max(1, Math.round(s * 0.6)));
     } else if (ty === T.GRASS || ty === T.FOREST || ty === T.HILL || ty === T.MOUNT || ty === T.SNOWMT) {
       rect(C.g, 0, 0, S, S);
-      if (lvl >= 1) speckle(C.gM, 0.07);
-      for (let k = 0; k < Math.round(3 * area); k++) {
-        const x = ri(S - 4) + 1, y = ri(S - 4) + 2;
-        px(C.gD, x, y); px(C.gD, x + 2, y); px(C.gD, x + 1, y + 1);
-        if (lvl >= 2) { px(C.gD, x + 3, y - 1); px(C.gL, x + 1, y - 1); }
-      }
-      speckle(C.gL, 3 / 256);
-      if (lvl >= 2 && r() < 0.4) {
-        for (let k = 0, n = 1 + ri(2); k < n; k++) {
-          const x = ri(S - 6) + 3, y = ri(S - 6) + 3, pc = r() < 0.5 ? C.flowerA : C.flowerB;
-          px(pc, x, y - 1); px(pc, x - 1, y); px(pc, x + 1, y); px(pc, x, y + 1); px(C.flowerC, x, y);
+      // calm ground: a few chunky tufts rather than dust; marks grow with the detail level
+      const k0 = Math.max(1, Math.round(s));
+      // soft darker patches (and a lighter rim at the finest level) instead of random dust
+      if (lvl >= 1) for (let k = 0, n = 2 + lvl; k < n; k++) {
+        const bx = ri(S), by = ri(S), brx = (2 + ri(3)) * s, bry = brx * 0.45;
+        for (let y = Math.floor(by - bry); y <= by + bry; y++) for (let x = Math.floor(bx - brx); x <= bx + brx; x++) {
+          const e = ((x - bx) / brx) ** 2 + ((y - by) / bry) ** 2;
+          if (e <= 1 && x >= 0 && y >= 0 && x < S && y < S) px(lvl >= 2 && y < by - bry * 0.55 && e > 0.5 ? C.gL : C.gM, x, y);
         }
+      }
+      for (let k = 0, n = r() < 0.7 ? 2 : 1; k < n; k++) {
+        const x = ri(S - 4 * k0) + k0, y = ri(S - 4 * k0) + 2 * k0;
+        rect(C.gD, x, y, k0, k0); rect(C.gD, x + 2 * k0, y, k0, k0); rect(C.gD, x + k0, y + k0, k0, k0);
+        if (lvl >= 2) rect(C.gL, x + k0, y - k0, k0, k0);
+      }
+      if (lvl === 0) speckle(C.gL, 2 / 256);
+      if (lvl >= 2 && r() < 0.25) {
+        const x = ri(S - 6 * k0) + 3 * k0, y = ri(S - 6 * k0) + 3 * k0, pc = r() < 0.5 ? C.flowerA : C.flowerB;
+        rect(pc, x, y - k0, k0, k0); rect(pc, x - k0, y, k0, k0); rect(pc, x + k0, y, k0, k0); rect(pc, x, y + k0, k0, k0); rect(C.flowerC, x, y, k0, k0);
       }
     } else if (ty === T.BEACH) {
       rect(C.sand, 0, 0, S, S);
-      if (lvl >= 1) speckle(C.sandL, 0.05);
-      speckle(C.sandD, 6 / 256);
+      if (lvl >= 1) speckle(C.sandL, 0.025);
+      speckle(C.sandD, 3 / 256);
     } else if (ty === T.DESERT) {
       rect(C.des, 0, 0, S, S);
-      if (lvl >= 1) speckle(C.desM, 0.05);
-      for (let k = 0; k < Math.round(2 * s); k++) {
+      if (lvl >= 1) speckle(C.desM, 0.025);
+      for (let k = 0; k < 2; k++) {
         const wl = Math.max(4, Math.round(4 * s)), x = ri(S - wl - 3) + 1, y = ri(S - Math.round(6 * s)) + Math.round(3 * s);
         rect(C.desD, x + 1, y, wl, 1); px(C.desD, x, y - 1); px(C.desD, x + wl + 1, y - 1);
         rect(C.desL, x + 1, y - 1, wl, 1);
         if (lvl >= 1) rect(C.desM, x + 2, y + 1, wl - 2, 1);
       }
-      speckle(C.desD, 3 / 256);
+      speckle(C.desD, 2 / 256);
     } else if (ty === T.SNOW || ty === T.SNOWFOREST) {
       rect(C.snow, 0, 0, S, S);
-      if (lvl >= 1) speckle(C.snowM, 0.06);
-      for (let k = 0; k < Math.round(4 * area); k++) rect(C.snowD, ri(S - 2), ri(S - 1), Math.max(2, Math.round(2 * s)), 1);
-      if (lvl >= 2) speckle(C.snowW, 0.01);
+      if (lvl >= 1) speckle(C.snowM, 0.03);
+      for (let k = 0; k < 3; k++) rect(C.snowD, ri(S - 2), ri(S - 1), Math.max(2, Math.round(3 * s)), Math.max(1, Math.round(s * 0.6)));
     } else if (ty === T.SWAMP) {
       rect(C.sw, 0, 0, S, S);
-      if (lvl >= 1) speckle(C.swM, 0.07);
+      if (lvl >= 1) speckle(C.swM, 0.035);
       for (let k = 0; k < Math.round(3 * s); k++) {
         const x = ri(S - Math.round(5 * s)), y = ri(S - Math.round(4 * s)) + Math.round(s);
         rect(C.swD, x, y, Math.round(5 * s), Math.round(2 * s)); rect(C.swD, x + Math.round(s), y - Math.round(s), Math.round(3 * s), Math.round(4 * s));
       }
     }
   }
-  function paintTree(g, cx, cy, snowy) {
+  function paintTree(g, cx, cy, snowy, k) {
     const { px, rect, s, lvl } = g;
-    const r = 3.3 * s, rr = r * r;
+    k = k || 1; // size of this tree relative to the standard one
+    const r = 3.3 * s * k, rr = r * r;
     const inC = (x, y) => { const dx = x + 0.5 - cx, dy = y + 0.5 - cy; return dx * dx + dy * dy <= rr; };
-    const tw = Math.max(1, Math.round(1.6 * s)), th = Math.max(2, Math.round(2 * s));
-    const tx = Math.round(cx - tw / 2), ty0 = Math.round(cy + r - 0.8 * s);
+    const tw = Math.max(1, Math.round(1.6 * s * k)), th = Math.max(2, Math.round(2 * s * k));
+    const tx = Math.round(cx - tw / 2), ty0 = Math.round(cy + r - 0.8 * s * k);
     rect(C.trunk, tx, ty0, tw, th);
     if (lvl >= 1) rect(C.trunkD, tx + tw - 1, ty0, 1, th);
     rect(C.treeK, tx, ty0 + th, tw, 1);
@@ -670,7 +691,10 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const h = by - ay;
     for (let y = ay; y <= by; y++) {
       const f = (y - ay) / h;
-      const l = Math.round(ax - (ax - bx0) * f), rr = Math.round(ax + (bx1 - ax) * f);
+      // a square-root profile gives a rounded summit and a broad, gentle slope instead of a sharp spike
+      const q = Math.min(1, (y - ay + 1) / (h + 1));
+      const w = Math.sqrt(1 - (1 - q) * (1 - q)) * 0.4 + q * 0.6;
+      const l = Math.round(ax - (ax - bx0) * w), rr = Math.round(ax + (bx1 - ax) * w);
       for (let x = l; x <= rr; x++) {
         const right = x > ax;
         const rel = right ? (x - ax) / Math.max(1, rr - ax) : (ax - x) / Math.max(1, ax - l);
@@ -683,7 +707,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
         if (lvl >= 2 && hash2(9, x, y) < 0.08) c = c === C.rockL ? C.rock : c === C.rock ? C.rockM : C.rockD;
         const snowLine = 0.38 + (lvl >= 1 ? (hash2(5, x, 0) - 0.5) * 0.14 : 0);
         if (snowy && f <= snowLine) c = x <= ax ? C.snowW : (lvl >= 1 && rel < 0.35 ? C.snowW : C.snowS);
-        if (x === l || x === rr || y === by) c = C.rockK;
+        if ((x === l && l > 0) || (x === rr && rr < g.S - 1) || y === by) c = C.rockK;
         px(c, x, y);
       }
     }
@@ -703,7 +727,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const ri = (n) => Math.floor(r() * Math.max(1, n));
     const wc = deep ? C.seaL : C.shalL, wd = deep ? C.seaD : C.shal;
     const wl = Math.max(4, Math.round(4 * s));
-    for (let k = 0, n = Math.max(2, Math.round(1.5 * s * s)); k < n; k++) {
+    for (let k = 0, n = Math.max(2, Math.round(1.5 * s)); k < n; k++) {
       const x = (ri(S - wl - 1) + (f ? Math.round(2 * s) : 0)) % (S - wl), y = ri(S - 4) + 3;
       px(wc, x, y); rect(wc, x + 1, y - 1, wl - 2, 1); px(wc, x + wl - 1, y);
       if (lvl >= 1) rect(wd, x + 1, y, wl - 2, 1);
@@ -830,7 +854,19 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     } else if (ty === T.FOREST || ty === T.SNOWFOREST) {
       const sn = ty === T.SNOWFOREST;
       const layouts = [[[4, 3], [12, 4], [8, 10]], [[4, 3], [11, 2], [4, 10], [12, 10]], [[8, 3], [3, 9], [12, 10]], [[4, 4], [12, 3], [8, 11]]];
-      for (const [x, y] of layouts[v % 4]) paintTree(g, x * s, y * s, sn);
+      if (g.lvl === 0) for (const [x, y] of layouts[v % 4]) paintTree(g, x * s, y * s, sn);
+      else {
+        // finer levels plant a denser wood of smaller trees (staggered rows, back row first)
+        const rr = mulberry32(v * 17 + 5), cols = 3, rows = g.lvl >= 2 ? 3 : 2, k = g.lvl >= 2 ? 0.66 : 0.78;
+        const trees = [];
+        for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+          const off = j % 2 ? 0.5 : 0, x = (2.4 + (i + off) * 4.6 + (rr() - 0.5) * 1.2), y = 2.8 + j * (rows === 3 ? 4.3 : 6.2) + (rr() - 0.5) * 1.2;
+          if (x > 13.6) continue;
+          trees.push([x, y, k * (0.9 + rr() * 0.25)]);
+        }
+        trees.sort((a, b) => a[1] - b[1]);
+        for (const [x, y, kk] of trees) paintTree(g, x * s, y * s, sn, kk);
+      }
     } else if (ty === T.HILL) {
       const hills = v % 2 ? [[8, 12, 6, 5]] : [[5, 8, 4, 3], [11, 13, 4, 4]];
       // hill colours follow the ground: grassy, sandy or snowy (light, shade, ridge, mid)
@@ -848,8 +884,15 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       }
     } else if (ty === T.MOUNT || ty === T.SNOWMT) {
       const sn = ty === T.SNOWMT, E = TS - 1;
-      if (v % 2) paintMountain(g, R(8), R(1), 0, E, R(14), sn);
-      else { paintMountain(g, R(5), R(4), 0, R(10), R(14), sn); paintMountain(g, R(11), R(1), R(6), E, R(14), sn); }
+      // low, gentle peaks that run edge to edge so neighbouring tiles join into a range;
+      // back peaks first, each row of peaks sits a little lower. Finer levels draw more peaks.
+      const ranges = g.lvl === 0
+        ? [[[4, 7, -2, 11], [11, 6, 6, 18]], [[8, 6, 0, 16]], [[5, 7, -1, 12], [12, 5, 5, 17]], [[8, 7, 1, 15]]]
+        : [[[3, 8, -3, 9, 11], [12, 7, 5, 19, 11], [8, 9, 0, 16, 14]], [[8, 7, 0, 16, 11], [3, 10, -3, 8, 14], [13, 10, 8, 19, 14]],
+           [[5, 8, -2, 11, 11], [12, 8, 6, 18, 11], [3, 10, -3, 9, 14], [11, 10, 5, 17, 14]], [[8, 7, -1, 17, 11], [5, 10, -2, 12, 14], [12, 9, 6, 19, 14]]];
+      for (const [px0, top, l0, r0, base] of ranges[v % 4].map((p) => [p[0], p[1], p[2], p[3], p[4] || 14])) {
+        paintMountain(g, R(px0), R(top), Math.max(0, R(l0)), Math.min(E, R(r0)), R(base), sn);
+      }
     }
     tileCache.set(key, c);
     return c;
@@ -997,14 +1040,59 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
         "...KSSNMMMMMK...", "...KSKSNMMMMK...", "...KSSSNMMMMK...", "....KKSSNMMK...."],
     },
   };
-  const BODY = {
-    D: ["..QKKCCCCCCKKQ..", ".QKCKCCCCCCKCKQ.", ".QKSKBBBBBBKSKQ.", "..QQKCCCCCCKQQ..", "..QQKDDKKBBKQQ..",
-      "....KBBKKKKK....", "....KKKK........"],
-    U: ["...KKPPPPPPKK...", "..KCKPPPPPPKCK..", "..KSKPPPPPPKSK..", "...KKPPPPPPKK...", "....KDDKKBBK....",
-      "....KBBKKKKK....", "....KKKK........"],
-    L0: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KSCCCCKQQ...", ".....KBBBBKQQ...", ".....KDDDDK.....",
+  // bunny-eared girl: bob hair, a red bow, long ears (used by the 暗鳴ニュイ preset)
+  HEADS.bunny = {
+    // 10 dots wide with the ear tips outlined; K above each ear closes the outline
+    D: ["....KKK..KKK....", "....KMK..KMK....", "...KKMKKKKMKK...", "...KHHHHHHRRK...", "...KHHHHHHHHK...",
+      "...KHSKSSKSHK...", "...KHSJSSJSHK...", "...KHHSSSSHHK...", "....KKSSSSKK...."],
+    U: ["....KKK..KKK....", "....KMK..KMK....", "...KKMKKKKMKK...", "...KHHHHHHRRK...", "...KHHHHHHHHK...",
+      "...KHHHHHHHHK...", "...KHHHHHHHHK...", "...KHHHHHHHHK...", "....KKHHHHKK...."],
+    L: [".....KKK.KKK....", ".....KMK.KMK....", "...KKKMKKKMKK...", "...KHHHHHHHHK...", "...KHHHHHHHHK...",
+      "...KSSHHHHHHK...", "...KSKSHHHHHK...", "...KSJSSHHHHK...", "....KKSSHHKK...."],
+  };
+  // Bodies are 8 dots wide at the widest (arms included) so they never get wider than the 10-dot head.
+  // Q is the cape colour (empty when there is no cape), P the back (cape colour or cloth), R belt/ribbon.
+  // skirt + cape: the cape hangs behind and just past the sides of the skirt
+  const BODY_SKIRT_CAPE = {
+    D: ["...QKYYYYYYKQ...", "..QKCCCRRCCCKQ..", "..QKSCRRRRCSKQ..", ".QQKDDDDDDDDKQQ.", ".QQKDDDDDDDDKQQ.",
+      "..QQKSSKKSSKQQ..", "....KBBK..KBBK.."],
+    U: ["....KYYYYYYK....", "...KCPPPPPPCK...", "...KSPPPPPPSK...", "..KPPPPPPPPPPK..", "..KPPPPPPPPPPK..",
+      "..KPPPPPPPPPPK..", "..KKBBKKKKBBKK.."],
+    // seen from the side the cape stays a thin strip down the back, ending at the skirt hem
+    L0: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KSCCCCKQQ...", ".....KRRRRKQQ...", "....KDDDDDDKQ...",
       "....KBBKKBBK....", "....KKK..KKK...."],
-    L1: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KCSCCCKQQ...", ".....KBBBBKQQ...", ".....KDDDDK.....",
+    L1: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KCSCCCKQQ...", ".....KRRRRKQQ...", "....KDDDDDDKQ...",
+      "......KBBK......", "......KKKK......"],
+  };
+  // with a cape: it reaches down to the feet and is just a little wider than the body
+  const BODY_CAPE = {
+    D: ["..QKCCCCCCCCKQ..", "..QKCCCCCCCCKQ..", "..QKSCBBBBCSKQ..", "..QQKCCCCCCKQQ..", "..QQKDDKKBBKQQ..",
+      "..QQKBBKKKKKQQ..", "....KKKK........"],
+    U: ["....KPPPPPPK....", "...KCPPPPPPCK...", "...KSPPPPPPSK...", "..KPPPPPPPPPPK..", "..KPPPPPPPPPPK..",
+      "..KPPPPPPPPPPK..", "..KKBBKKKKBBKK.."],
+    L0: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KSCCCCKQQ...", ".....KBBBBKQQ...", ".....KDDDDKQQ...",
+      "....KBBKKBBKQ...", "....KKK..KKKQ..."],
+    L1: [".....KCCCCKQ....", "....KCCCCCKQQ...", "....KCSCCCKQQ...", ".....KBBBBKQQ...", ".....KDDDDKQQ...",
+      "......KBBKQQ....", "......KKKKQ....."],
+  };
+  const BODY_SKIRT = {
+    D: ["....KYYYYYYK....", "...KCCCRRCCCK...", "...KSCRRRRCSK...", "...KDDDDDDDDK...", "...KDDDDDDDDK...",
+      "....KSSKKSSK....", "....KBBK..KBBK.."],
+    U: ["....KYYYYYYK....", "...KCPPPPPPCK...", "...KSRRRRRRSK...", "...KDDDDDDDDK...", "...KDDDDDDDDK...",
+      "....KSSKKSSK....", "....KBBK..KBBK.."],
+    L0: [".....KCCCCK.....", "....KCCCCCK.....", "....KSCCCCK.....", ".....KRRRRK.....", "....KDDDDDDK....",
+      "....KBBKKBBK....", "....KKK..KKK...."],
+    L1: [".....KCCCCK.....", "....KCCCCCK.....", "....KCSCCCK.....", ".....KRRRRK.....", "....KDDDDDDK....",
+      "......KBBK......", "......KKKK......"],
+  };
+  const BODY = {
+    D: ["....KCCCCCCK....", "...KCCCCCCCCK...", "...KSCBBBBCSK...", "....KCCCCCCK....", "....KDDKKBBK....",
+      "....KBBKKKKK....", "....KKKK........"],
+    U: ["....KPPPPPPK....", "...KCPPPPPPCK...", "...KSPPPPPPSK...", "....KPPPPPPK....", "....KDDKKBBK....",
+      "....KBBKKKKK....", "....KKKK........"],
+    L0: [".....KCCCCK.....", "....KCCCCCK.....", "....KSCCCCK.....", ".....KBBBBK.....", ".....KDDDDK.....",
+      "....KBBKKBBK....", "....KKK..KKK...."],
+    L1: [".....KCCCCK.....", "....KCCCCCK.....", "....KCSCCCK.....", ".....KBBBBK.....", ".....KDDDDK.....",
       "......KBBK......", "......KKKK......"],
   };
   const PRESETS = {
@@ -1013,6 +1101,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     mage: { name: "魔法使い", head: "wizard", cape: false, hair: "#d8d8e0", skin: "#f2c194", cloth: "#7448c0", capeC: "#3a2a70", hat: "#5a34a0", boots: "#3a2a1a" },
     priest: { name: "僧侶", head: "hood", cape: false, hair: "#a0662c", skin: "#f2c194", cloth: "#2f8ad0", capeC: "#e8e0d0", hat: "#efe6d2", boots: "#d0a040" },
     fighter: { name: "武闘家", head: "hair", cape: false, hair: "#1a1a22", skin: "#e8b07c", cloth: "#e0851e", capeC: "#c8302c", hat: "#c8302c", boots: "#2a2a30" },
+    // 暗鳴ニュイ (character design: 碧華). Fan pixel art; keep the rabbit ears, hair and eye colours as in the official design.
+    nui: { name: "暗鳴ニュイ", head: "bunny", cape: false, hair: "#e6bd86", skin: "#f8dcc8", cloth: "#f3e2d6", capeC: "#4a4a86", hat: "#f7ecea", boots: "#4a2622", skirt: "#43231f", bow: "#c8423c" },
     merchant: { name: "商人", head: "hood", cape: false, hair: "#5a3a1a", skin: "#f2c194", cloth: "#c8963a", capeC: "#7a4a20", hat: "#3a9a4a", boots: "#6a4020" },
   };
   const LOOK = Object.assign({ preset: "hero" }, PRESETS.hero);
@@ -1026,7 +1116,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   function mirror(rows) { return rows.map((r) => r.split("").reverse().join("")); }
   function spriteCanvas(rows, look) {
     const pal = {
-      K: "#1c1220", H: look.hair, S: look.skin, C: look.cloth, D: shade(look.cloth, -0.35), B: look.boots,
+      K: "#1c1220", H: look.hair, S: look.skin, C: look.cloth, D: look.skirt || shade(look.cloth, -0.35), B: look.boots, R: look.bow || "#c8423c", Y: "#efe2ae", J: "#f2a0a0",
       M: look.hat, N: shade(look.hat, -0.3), W: shade(look.hat, 0.55),
       P: look.cape ? look.capeC : look.cloth, Q: look.cape ? look.capeC : null,
     };
@@ -1058,13 +1148,15 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   // view: "D" (down), "U" (up) or "L" (left); frame 0/1. Right and the second down/up frames are mirrors.
   function figureCanvas(look, view, frame, S) {
     const k = S / 32, lvl = S >= 32 ? 2 : 1;
-    const REG = { cape: 0, leg: 1, boot: 2, torso: 3, belt: 4, arm: 5, hand: 6, hair: 7, face: 8, eye: 9, hat: 10, rim: 11, glint: 12 };
-    const color = [look.capeC, shade(look.cloth, -0.35), look.boots, look.cloth, look.boots, look.cloth, look.skin,
-      look.hair, look.skin, "#1c1220", look.hat, shade(look.hat, -0.25), "#ffffff"];
+    const REG = { cape: 0, leg: 1, boot: 2, torso: 3, belt: 4, arm: 5, hand: 6, hair: 7, face: 8, eye: 9, hat: 10, rim: 11, glint: 12, skirt: 13, bow: 14, earIn: 15, blush: 16, collar: 17 };
+    const bunny = look.head === "bunny", bowC = look.bow || "#c8423c";
+    const color = [look.capeC, look.skirt ? look.skin : shade(look.cloth, -0.35), look.boots, look.cloth, look.skirt ? bowC : look.boots, look.cloth, look.skin,
+      look.hair, look.skin, bunny ? "#5a2a22" : "#1c1220", look.hat, shade(look.hat, -0.25), "#ffffff", look.skirt || "#3f221e", bowC, "#f0b4b8", "#f4a4a4", "#efe2ae"];
     const ell = (u, v, cx, cy, rx, ry) => ((u - cx) / rx) ** 2 + ((v - cy) / ry) ** 2 <= 1;
     const inBox = (u, v, x0, y0, x1, y1) => u >= x0 && u < x1 && v >= y0 && v < y1;
     const side = view === "L";
-    const headC = side ? [15, 10, 8.8, 8.6] : [16, 10, 9.2, 8.6];
+    const dv = bunny ? 1.6 : 0; // the bunny's head sits lower so the ears have room above it
+    const headC = bunny ? (side ? [15, 10 + dv, 8.6, 8.4] : [16, 10 + dv, 8.6, 8.4]) : side ? [15, 10, 8.8, 8.6] : [16, 10, 9.2, 8.6];
     // legs and arms for this frame
     let legs, arms;
     if (side) {
@@ -1077,35 +1169,72 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const ids = new Int8Array(S * S).fill(-1);
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const u = (x + 0.5) / k, v = (y + 0.5) / k;
+      // the second down/up frame is the body mirrored, but the head (and any hair ornament) stays put
+      const ub = frame === 1 && !side ? 32 - u : u;
       let r = -1;
-      // cape behind the body
+      // cape behind the body: hangs below the waist and is wider than the shoulders
       if (look.cape && view !== "U") {
-        if (side) { if (v >= 16.5 && v < 29 && u >= 18.5 && u <= 20.5 + ((v - 16.5) / 12.5) * 5.5) r = REG.cape; }
-        else if (v >= 16.5 && v < 29 && Math.abs(u - 16) <= 7.2 + ((v - 16.5) / 12.5) * 2.6) r = REG.cape;
+        if (side) { if (v >= 16.5 && v < 30.6 && u >= 17.5 && u <= 20.5 + ((v - 16.5) / 14) * 6.5) r = REG.cape; }
+        // seen from the front only the edges show beside the arms, so keep it slim instead of a bell
+        else if (v >= 16.5 && v < 29.6 && Math.abs(ub - 16) <= 7.6 + ((v - 16.5) / 13) * 1.2) r = REG.cape;
       }
-      for (const [x0, y0, x1, y1] of legs) if (inBox(u, v, x0, y0, x1, y1)) r = v >= y1 - 3.2 ? REG.boot : REG.leg;
+      for (const [x0, y0, x1, y1] of legs) if (inBox(ub, v, x0, y0, x1, y1)) r = v >= y1 - 3.2 ? REG.boot : REG.leg;
       const tb = side ? [11.5, 16.5, 20.5, 25] : [10.5, 16.5, 21.5, 25];
-      if (inBox(u, v, ...tb) && !((u < tb[0] + 1 || u >= tb[2] - 1) && v < tb[1] + 1)) r = v >= 22 && v < 23.6 ? REG.belt : REG.torso;
-      if (view === "U" && look.cape && v >= 16.5 && v < 28.5 && Math.abs(u - 16) <= 6 + ((v - 16.5) / 12) * 3) r = REG.cape;
-      for (const [x0, y0, x1, y1] of arms) if (inBox(u, v, x0, y0, x1, y1)) r = v >= y1 - 2.4 ? REG.hand : REG.arm;
+      if (inBox(ub, v, ...tb) && !((ub < tb[0] + 1 || ub >= tb[2] - 1) && v < tb[1] + 1)) r = v >= 22 && v < 23.6 ? REG.belt : REG.torso;
+      if (look.skirt && v >= 23.6 && v < 28.4 && Math.abs(ub - (side ? 15.5 : 16)) <= (side ? 4.6 : 5.6) + (v - 23.6) * (side ? 0.7 : 1.0)) r = REG.skirt;
+      if (view === "U" && look.cape && v >= 16.5 && v < 30.6 && Math.abs(ub - 16) <= 7.4 + ((v - 16.5) / 14) * 2.8) r = REG.cape;
+      for (const [x0, y0, x1, y1] of arms) if (inBox(ub, v, x0, y0, x1, y1)) r = v >= y1 - 2.4 ? REG.hand : REG.arm;
+      // bob hair hanging round the face
+      if (bunny) {
+        if (!side && v >= 11.6 && v < 19 && Math.abs(u - 16) <= 8.4 && (v < 17.4 || Math.abs(u - 16) >= 5.8)) r = REG.hair;
+        if (side && v >= 11.6 && v < 19 && u >= 14 && u <= 21.6) r = REG.hair;
+      }
       // head
       if (ell(u, v, ...headC)) {
         r = REG.hair;
         if (view === "D") {
-          const fringe = 8.8 + (Math.floor(u / 2.6) % 2 ? 0.9 : 0);
-          if (v > fringe && Math.abs(u - 16) < 7.4) r = REG.face;
-          if (inBox(u, v, 12.2, 11.8, 14.2, 14.8) || inBox(u, v, 17.8, 11.8, 19.8, 14.8)) r = REG.eye;
-          if (lvl >= 2 && (inBox(u, v, 12.2, 11.8, 13.2, 12.8) || inBox(u, v, 17.8, 11.8, 18.8, 12.8))) r = REG.glint;
+          const fringe = 8.8 + dv + (bunny ? 0 : Math.floor(u / 2.6) % 2 ? 0.9 : 0);
+          if (v > fringe && Math.abs(u - 16) < (bunny ? 5.9 : 7.4)) r = REG.face;
+          if (bunny && v <= 12.6) r = REG.hair; // straight fringe
+          if (bunny) {
+            // big round eyes with a highlight, and rosy cheeks
+            if (ell(u, v, 12.9, 15, 1.4, 2.1) || ell(u, v, 19.1, 15, 1.4, 2.1)) r = REG.eye;
+            if (inBox(u, v, 12.2, 13.3, 13.5, 14.4) || inBox(u, v, 18.4, 13.3, 19.7, 14.4)) r = REG.glint;
+            if (ell(u, v, 10.9, 17.8, 1.5, 0.9) || ell(u, v, 21.1, 17.8, 1.5, 0.9)) r = REG.blush;
+            if (inBox(u, v, 15.2, 18.3, 16.8, 18.9)) r = REG.eye; // tiny smile
+          } else {
+            if (inBox(u, v, 12.2, 11.8, 14.2, 14.8) || inBox(u, v, 17.8, 11.8, 19.8, 14.8)) r = REG.eye;
+            if (lvl >= 2 && (inBox(u, v, 12.2, 11.8, 13.2, 12.8) || inBox(u, v, 17.8, 11.8, 18.8, 12.8))) r = REG.glint;
+          }
         } else if (side) {
           // face toward the front, with a fringe over the forehead and hair curving round the back
-          if (v > 9.4 + (Math.floor(u / 2.4) % 2 ? 0.8 : 0) && u < 13.4 + (v - 9.4) * 0.3) r = REG.face;
-          if (inBox(u, v, 8.4, 11.8, 10.4, 14.8)) r = REG.eye;
-          if (lvl >= 2 && inBox(u, v, 8.4, 11.8, 9.4, 12.8)) r = REG.glint;
+          if (bunny) {
+            if (v > 11.6 + dv * 0 && u < 12.6 + (v - 11.6) * 0.3) r = REG.face;
+            if (ell(u, v, 9.6, 15, 1.2, 2.1)) r = REG.eye;
+            if (inBox(u, v, 9.1, 13.3, 10.2, 14.4)) r = REG.glint;
+            if (ell(u, v, 9.2, 17.8, 1.3, 0.9)) r = REG.blush;
+          } else {
+            if (v > 9.4 + (Math.floor(u / 2.4) % 2 ? 0.8 : 0) && u < 13.4 + (v - 9.4) * 0.3) r = REG.face;
+            if (inBox(u, v, 8.4, 11.8, 10.4, 14.8)) r = REG.eye;
+            if (lvl >= 2 && inBox(u, v, 8.4, 11.8, 9.4, 12.8)) r = REG.glint;
+          }
         }
       }
       // headwear
       const [hx, hy] = headC;
-      if (look.head === "helmet") {
+      if (bunny) {
+        // two long ears standing up, with a pink inside, and a red bow on the right
+        // (ears start a unit or two below the top edge, so their tips get an outline too)
+        const e1 = side ? 12.4 : 11.2, e2 = side ? 17.6 : 20.8;
+        for (const ex of [e1, e2]) {
+          if (ell(u, v, ex, 6.4, 2.3, 4.8) && v < 11.2) r = REG.hat;
+          if (view !== "U" && ell(u, v, ex, 6.8, 1, 3.1)) r = REG.earIn;
+        }
+        if (view !== "L" && ell(u, v, 21.6, 10, 3, 2.2)) r = REG.bow;
+        // ruffled collar with a small red ribbon under the chin
+        if (!side && v >= 19.8 && v < 21.6 && Math.abs(u - 16) <= 6.2 + (v - 19.8) * 1.2 && r !== REG.hand && r !== REG.arm) r = REG.collar;
+        if (view === "D" && ell(u, v, 16, 22.2, 2.3, 1.2)) r = REG.bow;
+      } else if (look.head === "helmet") {
         const cut = view === "U" ? 12.6 : 10.6;
         if (ell(u, v, hx, 9.4, headC[2] + 0.6, 9) && v < cut) r = v >= cut - 1.8 ? REG.rim : REG.hat;
       } else if (look.head === "wizard") {
@@ -1155,16 +1284,19 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       const D0 = figureCanvas(look, "D", 0, TS), U0 = figureCanvas(look, "U", 0, TS);
       const L0 = figureCanvas(look, "L", 0, TS), L1 = figureCanvas(look, "L", 1, TS);
       return {
-        frames: [[D0, mirrorCanvas(D0)], [L0, L1], [mirrorCanvas(L0), mirrorCanvas(L1)], [U0, mirrorCanvas(U0)]],
+        // the second down/up frame is drawn with the body flipped and the head left alone
+        frames: [[D0, figureCanvas(look, "D", 1, TS)], [L0, L1], [mirrorCanvas(L0), mirrorCanvas(L1)], [U0, figureCanvas(look, "U", 1, TS)]],
         seq: [0, 1], w: TS, h: TS,
       };
     }
-    const hd = HEADS[look.head] || HEADS.hair;
-    const D0 = hd.D.concat(BODY.D), U0 = hd.U.concat(BODY.U);
-    const L0 = hd.L.concat(BODY.L0), L1 = hd.L.concat(BODY.L1);
+    const hd = HEADS[look.head] || HEADS.hair, bd = look.skirt ? (look.cape ? BODY_SKIRT_CAPE : BODY_SKIRT) : look.cape ? BODY_CAPE : BODY;
+    const D0 = hd.D.concat(bd.D), U0 = hd.U.concat(bd.U);
+    const L0 = hd.L.concat(bd.L0), L1 = hd.L.concat(bd.L1);
+    // the second down/up frame mirrors only the body, so a hair ornament never hops from side to side
+    const D1 = hd.D.concat(mirror(bd.D)), U1 = hd.U.concat(mirror(bd.U));
     const mk = (r) => spriteCanvas(r, look);
     return {
-      frames: [[mk(D0), mk(mirror(D0))], [mk(L0), mk(L1)], [mk(mirror(L0)), mk(mirror(L1))], [mk(U0), mk(mirror(U0))]],
+      frames: [[mk(D0), mk(D1)], [mk(L0), mk(L1)], [mk(mirror(L0)), mk(mirror(L1))], [mk(U0), mk(U1)]],
       seq: [0, 1], w: TS, h: TS,
     };
   }
@@ -1400,6 +1532,46 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     const k = charScale(ch), w = ch.w * k, h = ch.h * k;
     nctx.drawImage(f, Math.round(sx + TS / 2 - w / 2), Math.round(sy + TS - h), w, h);
   }
+  // ---------- time of day ----------
+  // darkness k: 0 = day, 0.5 = evening, 1 = night
+  const TOD_CYCLE = 90000; // ms for one full day when the time keeps changing
+  const TOD_COLORS = [[255, 255, 255], [198, 118, 128], [58, 74, 148]];
+  function todLevel(time) {
+    if (P.tod === "dusk") return 0.5;
+    if (P.tod === "night") return 1;
+    if (P.tod === "cycle") return Math.min(1, Math.max(0, 0.5 - 0.75 * Math.cos((2 * Math.PI * time) / TOD_CYCLE)));
+    return 0;
+  }
+  function applyTimeOfDay(time, tx0, ty0, tx1, ty1, camX, camY, heroX, heroY) {
+    const k = todLevel(time);
+    if (k <= 0.001) return;
+    const [a, b, t] = k <= 0.5 ? [TOD_COLORS[0], TOD_COLORS[1], k * 2] : [TOD_COLORS[1], TOD_COLORS[2], (k - 0.5) * 2];
+    const col = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    nctx.globalCompositeOperation = "multiply";
+    nctx.fillStyle = "rgb(" + col.join(",") + ")";
+    nctx.fillRect(0, 0, native.width, native.height);
+    // lights come on once it is getting dark: windows of towns and castles, a small lantern for the hero
+    const glow = Math.min(1, Math.max(0, (k - 0.35) / 0.5));
+    if (glow > 0) {
+      nctx.globalCompositeOperation = "lighter";
+      const N = world.N;
+      const lamp = (x, y, r, alpha) => {
+        const gr = nctx.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, "rgba(255,190,90," + (alpha * glow).toFixed(3) + ")");
+        gr.addColorStop(0.45, "rgba(255,150,60," + (alpha * glow * 0.4).toFixed(3) + ")");
+        gr.addColorStop(1, "rgba(255,120,40,0)");
+        nctx.fillStyle = gr;
+        nctx.fillRect(x - r, y - r, r * 2, r * 2);
+      };
+      for (let ty = ty0 - 1; ty <= ty1 + 1; ty++) for (let tx = tx0 - 1; tx <= tx1 + 1; tx++) {
+        const ty2 = world.t[mod(ty, N) * N + mod(tx, N)];
+        if (ty2 === T.TOWN || ty2 === T.CASTLE) lamp(tx * TS - camX + TS / 2, ty * TS - camY + TS * 0.55, TS * 1.3, 0.55);
+        else if (ty2 === T.SHRINE) lamp(tx * TS - camX + TS / 2, ty * TS - camY + TS * 0.6, TS * 0.8, 0.4);
+      }
+      lamp(heroX + TS / 2, heroY + TS * 0.6, TS * 1.6, 0.28);
+    }
+    nctx.globalCompositeOperation = "source-over";
+  }
   function render(time) {
     const N = world.N, nw = native.width, nh = native.height;
     const hp = W.moving ? lerpPos([W.x, W.y], [W.nx, W.ny], W.t) : [W.x, W.y];
@@ -1441,10 +1613,19 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     // lower on screen is drawn later; when stacked the leader stays on top
     draws.sort((a, b) => a[3] - b[3] || b[4] - a[4]);
     for (const [ch, d, sx, sy] of draws) drawChar(ch, d, phase, sx, sy);
+    applyTimeOfDay(time, tx0, ty0, tx1, ty1, camX, camY, hx - camX, hy - camY);
 
     out.imageSmoothingEnabled = false;
     const ox = Math.floor((canvas.width - nw * Z) / 2), oy = Math.floor((canvas.height - nh * Z) / 2);
     out.drawImage(native, 0, 0, nw, nh, ox, oy, nw * Z, nh * Z);
+    if (P.credit && LOOK.preset === "nui" && !heroSheet) {
+      const fs = Math.max(12, Math.round(canvas.height / 36));
+      out.font = "700 " + fs + 'px "BIZ UDPGothic", "Yu Gothic UI", sans-serif';
+      out.textBaseline = "bottom";
+      const txt = "キャラクター：暗鳴ニュイ", mx = Math.round(fs * 0.8), my = canvas.height - Math.round(fs * 0.6);
+      out.lineWidth = Math.max(2, fs / 5); out.strokeStyle = "rgba(0,0,0,0.75)"; out.strokeText(txt, mx, my);
+      out.fillStyle = "#ffffff"; out.fillText(txt, mx, my);
+    }
     const a = fadeAlpha();
     if (a > 0) { out.fillStyle = "rgba(0,0,0," + Math.min(1, a).toFixed(3) + ")"; out.fillRect(0, 0, canvas.width, canvas.height); }
   }
@@ -1541,6 +1722,8 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
   });
   $("#fade").checked = P.fade;
   $("#fade").addEventListener("change", (e) => { P.fade = e.target.checked; });
+  $("#tod").value = P.tod;
+  $("#tod").addEventListener("change", (e) => { P.tod = e.target.value; });
   $("#anim").checked = P.anim;
   $("#anim").addEventListener("change", (e) => { P.anim = e.target.checked; });
 
@@ -1553,7 +1736,15 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#cape").checked = LOOK.cape;
     COLOR_KEYS.forEach((k) => { $("#c-" + k).value = LOOK[k]; });
   }
-  presetSel.addEventListener("change", () => { Object.assign(LOOK, PRESETS[presetSel.value], { preset: presetSel.value }); syncLookUI(); rebuildParty(); });
+  const creditNote = $("#creditNote");
+  function syncCredit() { creditNote.hidden = LOOK.preset !== "nui"; }
+  presetSel.addEventListener("change", () => {
+    delete LOOK.skirt; delete LOOK.bow;
+    Object.assign(LOOK, PRESETS[presetSel.value], { preset: presetSel.value });
+    syncLookUI(); syncCredit(); rebuildParty();
+  });
+  $("#credit").checked = P.credit;
+  $("#credit").addEventListener("change", (e) => { P.credit = e.target.checked; });
   $("#head").addEventListener("change", (e) => { LOOK.head = e.target.value; rebuildParty(); });
   $("#cape").addEventListener("change", (e) => { LOOK.cape = e.target.checked; rebuildParty(); });
   COLOR_KEYS.forEach((k) => $("#c-" + k).addEventListener("input", (e) => { LOOK[k] = e.target.value; rebuildParty(); }));
@@ -1656,9 +1847,6 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
     $("#res").disabled = $("#fps").disabled = $("#rows").disabled = $("#art").disabled = false;
   }
   $("#rec").addEventListener("click", () => (recorder ? stopRec() : startRec()));
-  document.addEventListener("visibilitychange", () => {
-    if (recorder && document.hidden) status("タブが裏に回ったため、その間の映像は止まっています。");
-  });
   $("#save").addEventListener("click", async () => {
     if (!lastBlob) return;
     const ext = lastMime.includes("mp4") ? "mp4" : "webm";
@@ -1688,7 +1876,7 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
 
   // ---------- loop ----------
   let last = performance.now(), clock = 0, mmT = 0;
-  function frame(now) {
+  function frame(now, fromTimer) {
     // the first rAF timestamp can be slightly earlier than performance.now() at start-up
     const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
@@ -1702,8 +1890,15 @@ input[type="color"] { width: 44px; height: 28px; border: 1px solid var(--line); 
       const dur = parseFloat($("#duration").value) || 0;
       if (dur > 0 && el >= dur) stopRec();
     }
-    requestAnimationFrame(frame);
+    if (!fromTimer) requestAnimationFrame(frame);
   }
+  // A hidden tab gets no animation frames, so a timer in a worker (which is not throttled) keeps
+  // the walk and the recording going while another tab or window is in front.
+  try {
+    const url = URL.createObjectURL(new Blob(["setInterval(function(){postMessage(0)},16)"], { type: "text/javascript" }));
+    const ticker = new Worker(url);
+    ticker.onmessage = () => { if (document.hidden) frame(performance.now(), true); };
+  } catch (e) { /* without workers the loop simply pauses while the tab is hidden */ }
 
   // ---------- init ----------
   syncLookUI();
